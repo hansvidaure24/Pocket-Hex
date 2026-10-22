@@ -12,7 +12,7 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 .screen{display:none;flex-direction:column;align-items:center;width:100%;max-width:420px;flex:1}
 .screen.active{display:flex}
 #status-bar{font-size:10px;padding:3px 8px;text-align:center;width:100%;transition:background 0.3s;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid rgba(140,120,80,0.15)}
-.connected{color:#7ea879;background:rgba(126,168,121,0.04)}.disconnected{color:#c45a3c;background:rgba(196,90,60,0.06)}
+.connected{color:#7ea879;background:rgba(126,168,121,0.04)}.disconnected{color:#c45a3c;background:rgba(196,90,60,0.06)}.connecting{color:#c9973e;background:rgba(201,151,62,0.06)}
 
 /* MENU */
 #menu{justify-content:center;gap:16px;padding:24px;text-align:center}
@@ -102,6 +102,8 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 #my-stats .stat-val{color:#b8943e;font-weight:700}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="net-config.js"></script>
+<script src="net.js"></script>
 </head>
 <body>
 <div id="status-bar" class="disconnected">Enter room code to connect</div>
@@ -205,75 +207,42 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 </div>
 
 <script>
-// === Networking: PeerJS (cross-device) + BroadcastChannel + localStorage fallback ===
-let _bc;try{_bc=new BroadcastChannel('pocket-quest');}catch(e){_bc={postMessage(){},onmessage:null};}
-let _peerConn=null,_peer=null,_joined=false;
-let state=null,classData=null,myId='ctrl_'+Math.random().toString(36).slice(2,8);
-function _send(msg){
-  if(_peerConn&&_peerConn.open)try{_peerConn.send(msg);}catch(e){}
-  try{_bc.postMessage(msg);}catch(e){}
-  try{msg._t=Date.now();localStorage.setItem('pq-ctrl',JSON.stringify(msg));}catch(e){}
-}
-function _bcJoin(){
-  _joined=true;_bcOnly=true;
-  document.getElementById('join-status').textContent='Connected (local)';
-  document.getElementById('status-bar').className='connected';
-  document.getElementById('status-bar').textContent='Connected';
-  document.getElementById('ctrl-room-code').textContent='ROOM: '+(_lastCode||'');
-  _send({type:'ping',id:myId});
-  sendLobbyUpdate();
-  // keep pinging until we get state (host may not have seen us yet)
-  const retryPing=setInterval(()=>{
-    if(state){clearInterval(retryPing);return;}
+// === Networking: see net.js (relay + PeerJS + same-browser) ===
+let _link=null;
+let state=null,classData=null,myId=null;
+const VIA_LABEL={local:'same browser',relay:'online',p2p:'direct'};
+function _send(msg){if(_link)_link.send(msg);}
+function _setBar(cls,text){const b=document.getElementById('status-bar');b.className=cls;b.textContent=text;}
+function _onLinkStatus(st){
+  const js=document.getElementById('join-status');
+  const btn=document.getElementById('join-btn');
+  if(st.state==='connected'){
+    js.textContent='Connected ('+VIA_LABEL[st.via]+')';
+    _setBar('connected','Connected · '+VIA_LABEL[st.via]);
+    document.getElementById('ctrl-room-code').textContent='ROOM: '+st.code;
+    btn.disabled=false;
+    // announce ourselves right away so the host adds us to the lobby
     _send({type:'ping',id:myId});
     sendLobbyUpdate();
-  },500);
-  setTimeout(()=>clearInterval(retryPing),10000);
+  }else if(st.state==='connecting'){
+    js.textContent='Connecting…';_setBar('connecting','Connecting to '+st.code+'…');
+  }else if(st.state==='reconnecting'){
+    js.textContent='Reconnecting…';_setBar('connecting','Connection lost · reconnecting…');
+  }else{ // failed
+    js.textContent=st.detail==='Room not found'?'Room '+st.code+' not found. Check the code on the shared screen.':'Could not connect: '+st.detail;
+    _setBar('disconnected','Not connected');
+    btn.disabled=false;
+    if(_link){_link.close();_link=null;}
+  }
 }
-let _bcOnly=false,_lastCode='';
 function joinRoom(){
   const code=(document.getElementById('room-code').value||'').trim().toUpperCase();
-  if(code.length<2){document.getElementById('join-status').textContent='Enter the code from the shared screen';return;}
-  _lastCode=code;
-  document.getElementById('join-status').textContent='Connecting...';
+  if(code.length<4){document.getElementById('join-status').textContent='Enter the 4-letter code from the shared screen';return;}
+  if(_link&&_link.code===code&&_link.connected)return;
+  if(_link){_link.close();_link=null;}
+  myId=PQNet.stableId(code); // same id after a refresh, so we keep our player slot
   document.getElementById('join-btn').disabled=true;
-  // always send lobby join via BroadcastChannel immediately
-  _bc.postMessage({type:'ping',id:myId});
-  // try PeerJS, fallback to BroadcastChannel after 3s
-  const bcTimer=setTimeout(()=>{if(!_joined)_bcJoin();},3000);
-  try{
-    if(_peer){try{_peer.destroy();}catch(e){}_peer=null;}
-    _peer=new Peer(undefined,{debug:0});
-    const doConnect=()=>{
-      _peerConn=_peer.connect('pq-'+code.toLowerCase(),{reliable:true});
-      _peerConn.on('open',()=>{
-        clearTimeout(bcTimer);
-        _joined=true;_bcOnly=false;
-        document.getElementById('join-status').textContent='Connected!';
-        document.getElementById('status-bar').className='connected';
-        document.getElementById('status-bar').textContent='Connected';
-        document.getElementById('ctrl-room-code').textContent='ROOM: '+code;
-        _send({type:'ping',id:myId});
-      });
-      _peerConn.on('data',d=>_handleState(d));
-      _peerConn.on('close',()=>{
-        if(!_bcOnly){_joined=false;
-        document.getElementById('status-bar').className='disconnected';
-        document.getElementById('status-bar').textContent='Disconnected — rejoin';
-        document.getElementById('join-btn').disabled=false;}
-      });
-      _peerConn.on('error',()=>{
-        if(!_joined){clearTimeout(bcTimer);_bcJoin();}
-      });
-    };
-    if(_peer.open)doConnect();
-    else _peer.on('open',doConnect);
-    _peer.on('error',err=>{
-      if(!_joined){clearTimeout(bcTimer);_bcJoin();}
-    });
-  }catch(e){
-    clearTimeout(bcTimer);_bcJoin();
-  }
+  _link=PQNet.join(code,myId,{onMessage:_handleState,onStatus:_onLinkStatus});
 }
 document.getElementById('room-code').addEventListener('keydown',e=>{if(e.key==='Enter')joinRoom();});
 let selectedClass=0,selectedLoadout=0,isReady=false;
@@ -311,6 +280,7 @@ function syncMenuToLobby(){
   if(mn.value&&!ln.value)ln.value=mn.value;
   if(ln.value&&!mn.value)mn.value=ln.value;
 }
+const CLASS_ICONS=['⚔','✦','🗡','✚'];
 function buildMenuClassGrid(){
   const colors=['#c45a3c','#6b8cae','#7ea879','#c9973e'];
   const names=['Warrior','Mage','Rogue','Cleric'];
@@ -333,7 +303,6 @@ document.getElementById('menu-name').addEventListener('input',()=>{document.getE
 buildColorPicks('color-picks');buildColorPicks('menu-colors');buildMenuClassGrid();
 
 // === Class/loadout cards ===
-const CLASS_ICONS=['⚔','✦','🗡','✚'];
 function buildClassCards(){
   if(!classData)return;
   const colors=['#c45a3c','#6b8cae','#7ea879','#c9973e'];
@@ -452,6 +421,11 @@ const dpadEl=document.getElementById('dpad');
 // keyboard fallback
 const DIRS={KeyW:{dq:0,dr:-1},KeyS:{dq:0,dr:1},KeyA:{dq:-1,dr:0},KeyD:{dq:1,dr:0},KeyQ:{dq:-1,dr:1},KeyE:{dq:1,dr:-1}};
 document.addEventListener('keydown',e=>{
+  // don't hijack letters while typing a name/room code, or outside the game screen
+  const t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable))return;
+  if(!document.getElementById('game').classList.contains('active'))return;
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
   if(DIRS[e.code]){sendInput('move',DIRS[e.code].dq,DIRS[e.code].dr);e.preventDefault();}
   if(e.code==='Space'){sendInput('attack');e.preventDefault();}
   if(e.code==='KeyF'){sendInput('skill');e.preventDefault();}
@@ -465,9 +439,6 @@ function _handleState(d){
   if(d.forId&&d.forId!==myId)return;
   state=d;
   if(d.classes&&!classData){classData=d.classes;buildClassCards();}
-
-  document.getElementById('status-bar').className='connected';
-  document.getElementById('status-bar').textContent='Connected';
 
   if(d.gamePhase==='menu'){
     showScreen('menu');
@@ -661,29 +632,12 @@ function _handleState(d){
     document.getElementById('game-msg').textContent=d.gameOver?(d.msg||'Game Over'):'Waiting...';
   }
 }
-_bc.onmessage=e=>_handleState(e.data);
-window.addEventListener('storage',e=>{
-  if(e.key==='pq-host'&&e.newValue)try{_handleState(JSON.parse(e.newValue));}catch(ex){}
-});
-let _lastLsT=0;
-setInterval(()=>{
-  try{const v=localStorage.getItem('pq-host');if(v){const d=JSON.parse(v);if(d._t&&d._t>_lastLsT){_lastLsT=d._t;_handleState(d);}}}catch(e){}
-},300);
-
 // auto-join from QR code URL param
 const _urlRoom=new URLSearchParams(location.search).get('room');
-if(_urlRoom){document.getElementById('room-code').value=_urlRoom;joinRoom();}
+if(_urlRoom){document.getElementById('room-code').value=_urlRoom.toUpperCase();joinRoom();}
 
-_send({type:'ping',id:myId});
-setInterval(()=>{_send({type:'ping',id:myId});},800);
-let lastSeen=0;
-setInterval(()=>{
-  if(state){lastSeen=Date.now();state=null;}
-  if(Date.now()-lastSeen>3000&&!_joined){
-    document.getElementById('status-bar').className='disconnected';
-    document.getElementById('status-bar').textContent='Enter room code to connect';
-  }
-},2000);
+// heartbeat: host replies to each ping with fresh state
+setInterval(()=>{if(_link&&_link.connected)_send({type:'ping',id:myId});},800);
 </script>
 </body>
 </html>

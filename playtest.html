@@ -77,6 +77,8 @@ canvas{display:block;cursor:crosshair}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="net-config.js"></script>
+<script src="net.js"></script>
 </head>
 <body>
 <!-- MENU BG CANVAS -->
@@ -91,7 +93,8 @@ canvas{display:block;cursor:crosshair}
   <div style="font-size:30px;color:#c45a3c;font-weight:700;letter-spacing:4px;text-transform:uppercase;text-shadow:0 2px 0 rgba(0,0,0,0.5)">LOBBY</div>
   <div style="color:#8a7e6e;font-size:12px;letter-spacing:1px;text-transform:uppercase">Scan the QR code or enter the room code on your phone</div>
   <canvas id="qr-canvas" width="140" height="140" style="border-radius:6px;background:#fff;padding:8px;cursor:pointer" title="Scan to join"></canvas>
-  <div id="lobby-room" class="gpanel gpanel-gold" style="padding:8px 24px;font-size:20px;font-weight:700;color:#b8943e;letter-spacing:5px;text-transform:uppercase;cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(this.dataset.code);this.textContent='COPIED!';setTimeout(()=>this.textContent='ROOM: '+this.dataset.code,1200)">ROOM: LOCAL</div>
+  <div id="lobby-room" class="gpanel gpanel-gold" style="padding:8px 24px;font-size:20px;font-weight:700;color:#b8943e;letter-spacing:5px;text-transform:uppercase;cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(this.dataset.code);this.textContent='COPIED!';setTimeout(()=>this.textContent='ROOM: '+this.dataset.code,1200)">ROOM: …</div>
+  <div id="lobby-net" style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#c9973e;margin-top:-4px">○ Connecting…</div>
   <div id="lobby-players" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin:8px 0"></div>
   <div class="gpanel" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center;padding:8px 16px">
     <label>Party:<select id="player-sel"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option></select></label>
@@ -375,6 +378,7 @@ function drawSpr(key,cx,cy,sz,flash){
 let tickMs=1500,tickTimer=0,lastTime=0,running=false,gameOver=false,paused=false,tempoTicks=0,originalTickMs=1500;
 let entities=[],players=[],enemies=[],terrain=[];
 let pendingInput=null,pendingInputs={},controllerSlots={},tickCount=0,totalTicks=0;
+let msg='',msgTimer=0; // banner text shown on the shared screen
 let damageNumbers=[],flashEffects=[],projectiles=[],deathEffects=[],aoeEffects=[],trailEffects=[],statusParticles=[];
 let screenShake={x:0,y:0,life:0,intensity:0};
 let camOffX=0,camOffY=0;
@@ -3034,6 +3038,9 @@ function closeStats(){
 const DIRS={KeyW:{dq:0,dr:-1},KeyS:{dq:0,dr:1},KeyA:{dq:-1,dr:0},KeyD:{dq:1,dr:0},KeyQ:{dq:-1,dr:1},KeyE:{dq:1,dr:-1}};
 const DIR_NAMES={KeyW:'↑',KeyS:'↓',KeyA:'←',KeyD:'→',KeyQ:'↙',KeyE:'↗'};
 document.addEventListener('keydown',e=>{
+  // let text boxes (e.g. the host's player name) receive every key
+  const t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;
   if(e.code==='KeyH'){showHelp=!showHelp;document.getElementById('help-overlay').style.display=showHelp?'flex':'none';e.preventDefault();return;}
   if(e.code==='KeyP'&&running){
     paused=!paused;
@@ -4042,7 +4049,7 @@ goToLobby();
 requestAnimationFrame(render);
 
 function drawQR(code){
-  const url=window.location.href.replace('playtest.html','controller.html')+'?room='+code;
+  const url=new URL('controller.html?room='+encodeURIComponent(code),window.location.href).href;
   try{
     const qr=qrcode(0,'L');qr.addData(url);qr.make();
     const c=document.getElementById('qr-canvas'),ctx=c.getContext('2d');
@@ -4053,35 +4060,24 @@ function drawQR(code){
   }catch(e){document.getElementById('qr-canvas').style.display='none';}
 }
 
-// === Networking: PeerJS (cross-device) + BroadcastChannel + localStorage fallback ===
-let _bc;try{_bc=new BroadcastChannel('pocket-quest');}catch(e){_bc={postMessage(){},onmessage:null};}
-const _peerConns=[];
-const _roomCode=Math.random().toString(36).slice(2,6).toUpperCase();
-let _peer=null;
-function _initPeer(){
-  _peer=new Peer('pq-'+_roomCode.toLowerCase(),{debug:0});
-  _peer.on('open',()=>{
-    const el=document.getElementById('lobby-room');
-    el.textContent='ROOM: '+_roomCode;el.dataset.code=_roomCode;
-    drawQR(_roomCode);
-  });
-  _peer.on('connection',conn=>{
-    conn.on('open',()=>{_peerConns.push(conn);});
-    conn.on('data',d=>_handleMsg(d));
-    conn.on('close',()=>{const i=_peerConns.indexOf(conn);if(i>=0)_peerConns.splice(i,1);});
-  });
-  _peer.on('error',err=>{
-    if(err.type==='unavailable-id'){
-      document.getElementById('lobby-room').textContent='ROOM: LOCAL (peer busy)';
-    }
-  });
+// === Networking: see net.js (relay + PeerJS + same-browser) ===
+let _shownCode=null;
+function _updateRoomUI(st){
+  const el=document.getElementById('lobby-room');
+  if(st.code&&st.code!==_shownCode){_shownCode=st.code;drawQR(st.code);}
+  el.dataset.code=st.code||'';
+  el.textContent='ROOM: '+(st.code||'…');
+  const online=st.relay==='up'||st.p2p==='up';
+  const parts=[];
+  if(st.relay!=='off')parts.push('relay '+st.relay);
+  if(st.p2p!=='off')parts.push('p2p '+st.p2p);
+  const net=document.getElementById('lobby-net');
+  if(net){
+    net.textContent=(online?'● Online':'○ Connecting…')+' · '+parts.join(' · ')+(st.clients?' · '+st.clients+' phone'+(st.clients>1?'s':''):'');
+    net.style.color=online?'#7ea879':'#c9973e';
+  }
 }
-try{_initPeer();}catch(e){}
-function _broadcast(msg){
-  try{_bc.postMessage(msg);}catch(e){}
-  try{msg._t=Date.now();localStorage.setItem('pq-host',JSON.stringify(msg));}catch(e){}
-  _peerConns.forEach(c=>{try{c.send(msg);}catch(e){}});
-}
+const _net=PQNet.createHost({onMessage:d=>_handleMsg(d),onStatus:_updateRoomUI});
 function _handleMsg(d){
   if(d.type==='input'&&running&&!gameOver&&!paused){
     let inp;
@@ -4127,16 +4123,8 @@ function _handleMsg(d){
       if(u)applyUpgradePick(p,u);
     }
   }
-  if(d.type==='ping')_bcSendState(d.id);
+  if(d.type==='ping'&&d.id)_net.send(d.id,_buildState(d.id));
 }
-_bc.onmessage=e=>_handleMsg(e.data);
-window.addEventListener('storage',e=>{
-  if(e.key==='pq-ctrl'&&e.newValue)try{_handleMsg(JSON.parse(e.newValue));}catch(ex){}
-});
-let _lastCtrlT=0;
-setInterval(()=>{
-  try{const v=localStorage.getItem('pq-ctrl');if(v){const d=JSON.parse(v);if(d._t&&d._t>_lastCtrlT){_lastCtrlT=d._t;_handleMsg(d);}}}catch(e){}
-},300);
 function _serializePlayer(p){
   if(!p)return null;
   return{name:p.name,hp:p.hp,maxHp:p.maxHp,ghost:p.ghost,classIdx:p.classIdx,
@@ -4147,12 +4135,12 @@ function _serializePlayer(p){
     berserk:!!p.berserk,dodgeChance:p.dodgeChance||0,
     statuses:(p.statuses||[]).map(s=>({type:s.type,ticks:s.ticks}))};
 }
-function _bcSendState(forId){
+function _buildState(forId){
   const slot=forId?controllerSlots[forId]:undefined;
   const pi=slot!=null?slot:0;
   const pp=players[pi];
   const upState=window._upgradeState&&!window._upgradeState.done;
-  _broadcast({type:'state',gamePhase,forId:forId||null,
+  return({type:'state',gamePhase,forId:forId||null,
     running,gameOver,paused,tickCount,tickPct:Math.min(1,tickTimer/tickMs),
     won:gamePhase==='results'&&campaignNode>=campaignTotal-1&&enemies.every(e=>e.hp<=0),
     player:_serializePlayer(pp),
@@ -4175,7 +4163,8 @@ function _bcSendState(forId){
     }:null,
   });
 }
-setInterval(()=>{_bcSendState();Object.keys(controllerSlots).forEach(id=>_bcSendState(id));},200);
+// Each phone gets only its own state, over whichever transport it joined on.
+setInterval(()=>{_net.clientIds().forEach(id=>_net.send(id,_buildState(id)));},200);
 
 // === Menu background particle renderer ===
 (function(){
