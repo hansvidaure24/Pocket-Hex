@@ -69,6 +69,8 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 #item-row{font-size:11px;text-align:center;padding:3px 8px;color:#8a8077;background:rgba(10,10,20,0.6);border:1px solid rgba(140,120,80,0.1);border-radius:3px;margin:0 8px}
 #upgrade-row{font-size:11px;text-align:center;padding:2px;color:#b8943e}
 #swipe-zone{position:absolute;inset:0;z-index:2}
+/* arrow buttons + center hex sit above the swipe layer so taps reach them */
+.dpad-btn,.dpad-center{z-index:3}
 
 /* ghost overlay */
 .ghost-mode #player-banner{background:rgba(80,80,100,0.08)}
@@ -94,6 +96,14 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 .upgrade-card .desc{font-size:12px;color:#8a8077;margin-top:4px;line-height:1.4}
 #upgrade-status{font-size:11px;color:#8a7e6e;margin-top:6px;line-height:1.6}
 
+/* REJOIN */
+#rejoin-screen{justify-content:center;gap:14px;padding:24px;text-align:center}
+#rejoin-screen .title{font-size:22px;color:#b8943e;font-weight:700;letter-spacing:2px;text-transform:uppercase}
+.rejoin-card{background:#1e1a15;border:1px solid rgba(140,120,80,0.35);border-left-width:4px;border-radius:6px;padding:14px 16px;cursor:pointer;touch-action:manipulation;text-align:left;transition:transform 0.1s}
+.rejoin-card:active{transform:scale(0.96)}
+.rejoin-card .name{font-weight:700;font-size:17px;letter-spacing:1px;text-transform:uppercase}
+.rejoin-card .meta{font-size:11px;color:#8a8077;margin-top:2px}
+
 /* RESULTS */
 #results-screen{justify-content:center;gap:16px;padding:24px;text-align:center}
 #results-screen .title{font-size:20px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
@@ -117,6 +127,7 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
     <button id="join-btn" onclick="joinRoom()" style="background:linear-gradient(180deg,#3a5a35,#2a4025);color:#eee;border:1px solid rgba(126,168,121,0.4);padding:10px 20px;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:700;font-size:15px;letter-spacing:1px;text-transform:uppercase">JOIN</button>
   </div>
   <div id="join-status" style="font-size:10px;color:#555;min-height:14px;text-align:center"></div>
+  <button id="rejoin-last" style="display:none;background:linear-gradient(180deg,#4a3a20,#33280f);color:#e8c878;border:1px solid rgba(184,148,62,0.45);padding:10px 16px;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase"></button>
   <div style="width:80px;height:1px;background:linear-gradient(90deg,transparent,rgba(140,120,80,0.3),transparent);margin:8px auto 6px"></div>
   <div style="font-size:10px;color:#555;text-align:center;line-height:1.7;padding:0 20px;max-width:320px">
     <span style="color:#c45a3c;font-weight:700">HOW TO PLAY</span><br>
@@ -197,6 +208,13 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
   <div id="upgrade-status"></div>
 </div>
 
+<!-- REJOIN (game already running, this controller has no hero) -->
+<div id="rejoin-screen" class="screen">
+  <div class="title">Game in progress</div>
+  <div id="rejoin-sub" style="font-size:12px;color:#8a7e6e;letter-spacing:0.5px">Tap your hero to jump back in</div>
+  <div id="rejoin-choices" style="display:flex;flex-direction:column;gap:10px;width:100%"></div>
+</div>
+
 <!-- RESULTS -->
 <div id="results-screen" class="screen">
   <div style="width:60px;height:2px;background:linear-gradient(90deg,transparent,rgba(196,90,60,0.4),transparent);margin:8px auto 6px"></div>
@@ -221,6 +239,7 @@ function _onLinkStatus(st){
     _setBar('connected','Connected · '+VIA_LABEL[st.via]);
     document.getElementById('ctrl-room-code').textContent='ROOM: '+st.code;
     btn.disabled=false;
+    _rememberRoom(st.code);
     // announce ourselves right away so the host adds us to the lobby
     _send({type:'ping',id:myId});
     sendLobbyUpdate();
@@ -234,6 +253,17 @@ function _onLinkStatus(st){
     btn.disabled=false;
     if(_link){_link.close();_link=null;}
   }
+}
+// Remember the room: a reload of this tab rejoins it, and a new tab offers "Rejoin as …"
+function _rememberRoom(code){
+  try{sessionStorage.setItem('pq-room',code);}catch(e){}
+  try{
+    const prev=JSON.parse(localStorage.getItem('pq-last')||'null');
+    const typed=document.getElementById('player-name').value.trim().toUpperCase();
+    // after a reload the name box is empty: keep the name we saved for this same player
+    const name=typed||(prev&&prev.id===myId?prev.name:'')||'';
+    localStorage.setItem('pq-last',JSON.stringify({room:code,id:myId,name,t:Date.now()}));
+  }catch(e){}
 }
 function joinRoom(){
   const code=(document.getElementById('room-code').value||'').trim().toUpperCase();
@@ -358,6 +388,7 @@ document.getElementById('ready-btn').addEventListener('click',()=>{
 function sendLobbyUpdate(){
   const customName=document.getElementById('player-name').value.trim().toUpperCase()||null;
   _send({type:'lobby_join',id:myId,name:customName||'P2',classIdx:selectedClass,loadout:selectedLoadout,ready:isReady,customColor:selectedColor});
+  if(_link&&_link.connected)_rememberRoom(_link.code); // keep the saved name current for "Rejoin as …"
 }
 
 // === Input ===
@@ -433,12 +464,37 @@ document.addEventListener('keydown',e=>{
   if(e.code==='Digit1'){sendInput('item');e.preventDefault();}
 });
 
+// === Rejoin: game is running and this controller has no hero ===
+let _lastLobbyResend=0;
+function showRejoin(d){
+  showScreen('rejoin-screen');
+  const list=d.claimable||[];
+  const box=document.getElementById('rejoin-choices');
+  const key=list.map(c=>c.slot+':'+c.name+':'+c.hp).join('|');
+  if(box.dataset.key===key)return;
+  box.dataset.key=key;
+  document.getElementById('rejoin-sub').textContent=list.length?'Tap your hero to jump back in':'Every hero is being played. You can join the next game from the lobby.';
+  box.innerHTML='';
+  list.forEach(c=>{
+    const card=document.createElement('div');
+    card.className='rejoin-card';card.style.borderLeftColor=c.color;
+    card.innerHTML=`<div class="name" style="color:${c.color}">${c.name}</div><div class="meta">${c.loadout||''} · ${c.ghost?'Ghost':c.hp+'/'+c.maxHp+' HP'} · AI is covering</div>`;
+    const claim=e=>{e.preventDefault();_send({type:'claim_slot',slot:c.slot,id:myId});if(navigator.vibrate)navigator.vibrate(30);};
+    card.addEventListener('click',claim);card.addEventListener('touchend',claim);
+    box.appendChild(card);
+  });
+}
+
 // === Receive state ===
 function _handleState(d){
   if(d.type!=='state')return;
   if(d.forId&&d.forId!==myId)return;
   state=d;
   if(d.classes&&!classData){classData=d.classes;buildClassCards();}
+
+  // host dropped us from the lobby after we went quiet → sign back in
+  if(d.gamePhase==='lobby'&&d.inLobby===false&&Date.now()-_lastLobbyResend>1500){_lastLobbyResend=Date.now();sendLobbyUpdate();}
+  if(d.spectator){showRejoin(d);return;}
 
   if(d.gamePhase==='menu'){
     showScreen('menu');
@@ -634,7 +690,26 @@ function _handleState(d){
 }
 // auto-join from QR code URL param
 const _urlRoom=new URLSearchParams(location.search).get('room');
-if(_urlRoom){document.getElementById('room-code').value=_urlRoom.toUpperCase();joinRoom();}
+let _sessRoom=null;try{_sessRoom=sessionStorage.getItem('pq-room');}catch(e){}
+const _autoRoom=_urlRoom||_sessRoom; // after a reload, straight back into the same room
+if(_autoRoom){document.getElementById('room-code').value=_autoRoom.toUpperCase();joinRoom();}
+else{
+  // tab was closed/killed (new session): offer to pick up where this phone left off
+  try{
+    const last=JSON.parse(localStorage.getItem('pq-last')||'null');
+    if(last&&last.room&&last.id&&Date.now()-last.t<3*3600*1000){
+      const b=document.getElementById('rejoin-last');
+      b.textContent=`↻ Rejoin ${last.room}${last.name?' as '+last.name:''}`;
+      b.style.display='block';
+      b.onclick=()=>{
+        // reuse the old id so the host hands the same hero straight back
+        try{sessionStorage.setItem('pq-id-'+last.room,last.id);}catch(e){}
+        if(last.name){document.getElementById('player-name').value=last.name;document.getElementById('menu-name').value=last.name;}
+        document.getElementById('room-code').value=last.room;b.style.display='none';joinRoom();
+      };
+    }
+  }catch(e){}
+}
 
 // heartbeat: host replies to each ping with fresh state
 setInterval(()=>{if(_link&&_link.connected)_send({type:'ping',id:myId});},800);

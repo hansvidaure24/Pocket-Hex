@@ -126,6 +126,7 @@ canvas{display:block;cursor:crosshair}
 
 <!-- GAME SCREEN (fullscreen canvas) -->
 <div id="game-screen" style="display:none;position:fixed;inset:0;z-index:2">
+  <div id="dc-banner" style="display:none;position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:6;align-items:center;gap:10px;padding:8px 12px;background:rgba(16,13,10,0.92);border:1px solid rgba(196,144,64,0.45);border-radius:6px;font-size:13px;color:#ddd;box-shadow:0 4px 18px rgba(0,0,0,0.5);pointer-events:none"></div>
   <div id="top-bar" style="display:none"><div id="campaign-bar"></div><span class="sep">|</span><span id="game-status-txt"></span>
     <button id="restart-btn" class="gbtn" style="display:none;padding:3px 12px;font-size:10px" onclick="irisWipe({speed:0.005,color:'#000',hold:80,onMid:startCampaign})">NEW CAMPAIGN</button>
   </div>
@@ -3114,7 +3115,7 @@ C.addEventListener('mousemove',e=>{
       const upTxt=hoverEntity.upgrades&&hoverEntity.upgrades.length?`<br><span style="color:#b8943e">Upgrades: ${hoverEntity.upgrades.join(' ')}</span>`:'';
       const bonusTxt=(hoverEntity.dmgBonus||hoverEntity.cdBonus||hoverEntity.critBonus)?`<br><span style="color:#aaa">${hoverEntity.dmgBonus?'+'+hoverEntity.dmgBonus+' dmg ':''} ${hoverEntity.cdBonus?'-'+hoverEntity.cdBonus+' cd ':''} ${hoverEntity.critBonus?'+'+(hoverEntity.critBonus*100|0)+'% crit':''}</span>`:'';
       const ldTxt=hoverEntity.loadout?`<br><span style="color:#ddd">Loadout: ${hoverEntity.loadout}</span>`:'';
-      text=`<b style="color:${hoverEntity.color}">${hoverEntity.name}</b>${hoverEntity.isBot?' (AI)':' (YOU)'}<br>${hoverEntity.hp}/${hoverEntity.maxHp} HP · ${def.desc}${ldTxt}${itemTxt}${pStatTxt}${deathTxt}${upTxt}${bonusTxt}`;
+      text=`<b style="color:${hoverEntity.color}">${hoverEntity.name}</b>${hoverEntity._dc?' (DISCONNECTED)':hoverEntity.isBot?' (AI)':' (YOU)'}<br>${hoverEntity.hp}/${hoverEntity.maxHp} HP · ${def.desc}${ldTxt}${itemTxt}${pStatTxt}${deathTxt}${upTxt}${bonusTxt}`;
     }
   } else if(t){
     const labels={[T_WALL]:'<b style="color:#666">Wall</b> — impassable',[T_HAZARD]:'<b style="color:#cc4444">Hazard</b> — 1 dmg when entered',[T_COVER]:'<b style="color:#2a6a4a">Cover</b> — -1 incoming dmg · regen 1 HP / 4 ticks',[T_LAVA]:'<b style="color:#ff4400">Lava</b> — 2 dmg + burn when entered'};
@@ -3210,7 +3211,7 @@ function updateHud(){
   if(gsTxt)gsTxt.textContent=`${activeBiome.name} · ${diffNames[difficulty]||'Normal'} · ${players.length}P · Lv${partyLevel} · Tick ${tickCount}`;
   let html='';
   players.forEach((p,i)=>{
-    const tag=i===0?' (YOU)':p.isBot?' (AI)':' (P'+(i+1)+')';
+    const tag=p._dc?' (DC)':i===0?' (YOU)':p.isBot?' (AI)':' (P'+(i+1)+')';
     const status=p.ghost?' 👻':p.hp<=0?' ☠️':'';
     const cd=p.hp>0?(p.cdTimer>0?` [${p.ability}: ${p.cdTimer}]`:` [${p.ability}: ✦]`):'';
     const item=p.item?` ${p.item.icon}`:'';
@@ -3258,7 +3259,7 @@ function updatePauseInfo(){
     const item=p.item?p.item.icon+' '+p.item.name:'—';
     const ups=p.upgrades?.length?p.upgrades.join(''):'';
     html+=`<div style="background:rgba(20,18,14,0.9);border:1px solid ${p.color}44;border-radius:4px;padding:6px 10px;min-width:110px;text-align:center">
-      <div style="color:${p.color};font-weight:700;font-size:13px">${p.name}${p.isBot?' (AI)':''}</div>
+      <div style="color:${p.color};font-weight:700;font-size:13px">${p.name}${p._dc?' (DC)':p.isBot?' (AI)':''}</div>
       <div style="color:${hCol};font-size:11px">${p.ghost?'Ghost':p.hp+'/'+p.maxHp}</div>
       <div style="height:3px;background:#0f0d0a;margin:3px 0;border-radius:2px"><div style="width:${hpPct}%;height:100%;background:${hCol};border-radius:2px"></div></div>
       <div style="font-size:9px;color:#6b8cae">${cd}</div>
@@ -3316,7 +3317,7 @@ function drawCanvasHud(ts){
     // left color accent
     ctx.fillStyle=p.color;ctx.fillRect(cx,cy,2,cardH);
     // name
-    const tag=i===0&&hostPlaying?' (YOU)':p.isBot?' (AI)':'';
+    const tag=p._dc?' (DC)':i===0&&hostPlaying?' (YOU)':p.isBot?' (AI)':'';
     const status=p.ghost?' 👻':'';
     ctx.fillStyle=p.color;ctx.font='600 10px Rajdhani,sans-serif';ctx.textAlign='left';ctx.textBaseline='top';
     ctx.fillText(p.name+tag+status,cx+6,cy+3);
@@ -4079,6 +4080,7 @@ function _updateRoomUI(st){
 }
 const _net=PQNet.createHost({onMessage:d=>_handleMsg(d),onStatus:_updateRoomUI});
 function _handleMsg(d){
+  if(d.id)_ctrlSeen[d.id]=Date.now();
   if(d.type==='input'&&running&&!gameOver&&!paused){
     let inp;
     if(d.action==='move')inp={dq:d.dq,dr:d.dr};
@@ -4094,7 +4096,9 @@ function _handleMsg(d){
     if(inp){
       const slot=d.id?controllerSlots[d.id]:undefined;
       if(slot!=null){pendingInputs[slot]=inp;}
-      else if(hostPlaying){pendingInput=inp;if(inp==='skill')skillPreview=true;}
+      // a phone without a hero (e.g. back with a new id) is a spectator until it claims one —
+      // it must not drive the host's hero
+      else if(hostPlaying&&!d.id){pendingInput=inp;if(inp==='skill')skillPreview=true;}
     }
     keyHintShown=true;
   }
@@ -4115,9 +4119,19 @@ function _handleMsg(d){
     }
     updateLobbyDisplay();
   }
+  if(d.type==='claim_slot'&&gamePhase!=='lobby'&&d.id&&controllerSlots[d.id]==null){
+    const p=players[d.slot];
+    if(p&&p._dc){
+      const oldId=_slotOwner(d.slot);if(oldId)delete controllerSlots[oldId];
+      controllerSlots[d.id]=d.slot;_ctrlSeen[d.id]=Date.now();
+      _markReconnected(d.slot);
+      _net.send(d.id,_buildState(d.id));
+    }
+  }
   if(d.type==='upgrade_pick'&&window._upgradeState&&!window._upgradeState.done){
     const slot=d.id?controllerSlots[d.id]:0;
-    const p=players[slot!=null?slot:0];
+    if(slot==null)return; // spectator phone — no hero to pick for
+    const p=players[slot];
     if(p&&!window._upgradeState.picks[p.name]){
       const u=window._upgradeState.choices[p.name][d.idx];
       if(u)applyUpgradePick(p,u);
@@ -4125,6 +4139,61 @@ function _handleMsg(d){
   }
   if(d.type==='ping'&&d.id)_net.send(d.id,_buildState(d.id));
 }
+// === Controller presence: notice drop-outs, let players rejoin ===
+// Phones ping ~every 800ms. No message for DC_MS → their hero goes on AI autopilot and the
+// shared screen shows how to rejoin. Same id comes back (net.js reconnect / page reload) →
+// control returns automatically; a new id (tab killed, other phone) can claim a disconnected
+// hero via 'claim_slot'.
+const DC_MS=5000,LOBBY_DROP_MS=15000;
+const _ctrlSeen={};
+function _slotOwner(slot){return Object.keys(controllerSlots).find(id=>controllerSlots[id]===slot);}
+function _markDisconnected(slot){
+  const p=players[slot];if(!p||p._dc)return;
+  p._dc=true;p.isBot=true;delete pendingInputs[slot];
+  combatLog(`${p.name} disconnected — AI is covering`,'#c49040');
+  showWaveAnnounce(p.name+' DISCONNECTED','Rejoin with room code '+(_shownCode||''),2500);
+  const us=window._upgradeState;
+  if(us&&!us.done&&!us.picks[p.name]){const ch=us.choices[p.name]||[];if(ch.length)applyUpgradePick(p,ch[Math.floor(Math.random()*ch.length)]);}
+  _updateDcBanner();
+}
+function _markReconnected(slot){
+  const p=players[slot];if(!p||!p._dc)return;
+  p._dc=false;p.isBot=false;
+  combatLog(`${p.name} reconnected`,'#7ea879');
+  showWaveAnnounce(p.name+' IS BACK','',1500);
+  _updateDcBanner();
+}
+function _updateDcBanner(){
+  const el=document.getElementById('dc-banner');if(!el)return;
+  const dc=gamePhase==='lobby'?[]:players.filter(p=>p._dc);
+  const key=dc.map(p=>p.name).join(',')+'|'+_shownCode;
+  if(el.dataset.key===key)return;
+  el.dataset.key=key;
+  if(!dc.length){el.style.display='none';return;}
+  const names=dc.map(p=>`<b style="color:${p.color}">${p.name}</b>`).join(', ');
+  el.innerHTML=`<canvas id="dc-qr" width="64" height="64" style="border-radius:4px;background:#fff;flex-shrink:0"></canvas>
+    <div style="text-align:left;line-height:1.5">⚠ ${names} disconnected — AI is covering<br>
+    <span style="color:#8a7e6e">Rejoin: scan, or open the controller and enter</span> <b style="color:#b8943e;letter-spacing:3px">${_shownCode||''}</b></div>`;
+  el.style.display='flex';
+  try{const src=document.getElementById('qr-canvas');document.getElementById('dc-qr').getContext('2d').drawImage(src,0,0,64,64);}catch(e){}
+}
+setInterval(()=>{
+  const now=Date.now();
+  if(gamePhase==='lobby'){
+    // free the seat of a phone that has gone quiet (it re-appears when it pings again)
+    const n=lobbyPlayers.length;
+    lobbyPlayers=lobbyPlayers.filter(lp=>lp.isLocal||now-(_ctrlSeen[lp.id]||now)<LOBBY_DROP_MS);
+    if(lobbyPlayers.length!==n)updateLobbyDisplay();
+  } else {
+    Object.keys(controllerSlots).forEach(id=>{
+      if(_ctrlSeen[id]==null){_ctrlSeen[id]=now;return;}
+      if(now-_ctrlSeen[id]>DC_MS)_markDisconnected(controllerSlots[id]);
+      else _markReconnected(controllerSlots[id]);
+    });
+  }
+  _updateDcBanner();
+},1000);
+
 function _serializePlayer(p){
   if(!p)return null;
   return{name:p.name,hp:p.hp,maxHp:p.maxHp,ghost:p.ghost,classIdx:p.classIdx,
@@ -4140,7 +4209,12 @@ function _buildState(forId){
   const pi=slot!=null?slot:0;
   const pp=players[pi];
   const upState=window._upgradeState&&!window._upgradeState.done;
+  // phone with no hero in a running game: let it pick a disconnected one to take back
+  const spectator=!!forId&&slot==null&&gamePhase!=='lobby';
   return({type:'state',gamePhase,forId:forId||null,
+    spectator,
+    claimable:spectator?players.map((p,i)=>p._dc?{slot:i,name:p.name,color:p.color,loadout:p.loadout,hp:p.hp,maxHp:p.maxHp,ghost:!!p.ghost}:null).filter(Boolean):null,
+    inLobby:forId?lobbyPlayers.some(p=>p.id===forId):null,
     running,gameOver,paused,tickCount,tickPct:Math.min(1,tickTimer/tickMs),
     won:gamePhase==='results'&&campaignNode>=campaignTotal-1&&enemies.every(e=>e.hp<=0),
     player:_serializePlayer(pp),
