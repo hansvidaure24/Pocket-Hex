@@ -347,12 +347,15 @@
           setStatus('connected', kind);
           return;
         } catch (e) {
-          errors.push((e && e.message) || String(e));
+          // "No host in this browser" is expected on phones, so don't show it.
+          if (kind !== 'local') errors.push((e && e.message) || String(e));
         }
       }
       if (closed || g !== gen) return;
-      // Prefer the most useful reason ("Room not found" beats "No host in this browser").
-      const detail = errors.find((e) => /not found|full/i.test(e)) || errors[errors.length - 1] || 'Could not connect';
+      // A stale/cached net-config.js without a relay is the classic cause of p2p-only failures.
+      if (!relayBase() && transportOn('relay')) errors.unshift('Relay not configured');
+      // "Room not found" is the actionable one; otherwise show every attempt so failures are diagnosable.
+      const detail = errors.find((e) => /not found|full/i.test(e)) || errors.join(' · ') || 'Could not connect';
       if (everConnected) {
         // Host blip or phone changed networks: keep trying quietly.
         setStatus('reconnecting', null, detail);

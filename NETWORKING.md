@@ -44,6 +44,12 @@ npx wrangler deploy
    `ALLOWED_ORIGINS = "https://hansvidaure24.github.io"`, then run `npx wrangler deploy` again.
 3. Commit and push. GitHub Pages redeploys the site.
 
+**Whenever you change `net-config.js` or `net.js`, bump the `?v=` number on their `<script>`
+tags in both `playtest.html` and `controller.html`.** GitHub Pages lets browsers cache files
+for 10 minutes. Without the bump, a phone can mix a new page with an old config, for example
+one with no relay URL. In that case it only tries peer-to-peer and the error says
+"Relay not configured".
+
 Check it's up by opening `https://pocket-hex-relay.<you>.workers.dev/health`. It should
 show `pocket-hex-relay ok`. In the host lobby, the line under the room code should read
 `● Online · relay up · p2p up`.

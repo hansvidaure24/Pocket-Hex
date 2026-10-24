@@ -14,4 +14,4 @@ new_sqlite_classes = ["Room"]
 [vars]
 # Comma-separated list of page origins allowed to connect, e.g.
 # "https://hansvidaure24.github.io,http://localhost:8000". Empty = allow any.
-ALLOWED_ORIGINS = ""
+ALLOWED_ORIGINS = "https://hansvidaure24.github.io,http://localhost:8000,http://127.0.0.1:8000"
