@@ -19,6 +19,9 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 .gbtn-primary:hover{background:#c45a3c}
 .gbtn-go{background:#3a5a35;border-color:rgba(126,168,121,0.4)}
 .gbtn-go:hover{background:#4a7a50}
+.gbtn:disabled,.gbtn:disabled:hover{background:#2a2620;border-color:rgba(140,120,80,0.25);color:#8a7e6e;cursor:not-allowed;transform:none}
+.kick-btn{position:absolute;top:4px;right:6px;background:none;border:none;color:#6a5e50;font-size:14px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:3px;font-family:inherit}
+.kick-btn:hover{color:#fff;background:#a3472e}
 select,input[type=range]{background:var(--bg-panel);color:#ccc;border:1px solid var(--border);padding:3px 6px;border-radius:3px;font-family:inherit;font-size:12px;cursor:pointer}
 select:hover{border-color:rgba(140,120,80,0.6)}
 label{font-size:12px;color:var(--chrome);text-transform:uppercase;letter-spacing:0.5px}
@@ -118,7 +121,7 @@ canvas{display:block;cursor:crosshair}
   </div>
   <div id="lobby-loadout-desc" style="color:#8a8077;font-size:11px;min-height:14px"></div>
   <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
-    <button class="gbtn gbtn-go" id="start-btn" onclick="startFromLobby()" style="padding:14px 44px;font-size:18px;letter-spacing:2px">START CAMPAIGN</button>
+    <button class="gbtn gbtn-go" id="start-btn" onclick="if(_lobbyReady().ok)startFromLobby()" style="padding:14px 44px;font-size:18px;letter-spacing:2px">START CAMPAIGN</button>
     <button class="gbtn" onclick="startPractice()" style="padding:10px 24px;font-size:13px;letter-spacing:1px;opacity:0.7">PRACTICE</button>
   </div>
   <button class="gbtn" onclick="window.location='index.html'" style="padding:5px 16px;font-size:11px;opacity:0.6">BACK</button>
@@ -449,13 +452,14 @@ function updateLobbyDisplay(){
   for(let i=0;i<numP;i++){
     const lp=lobbyPlayers[i];
     if(lp){
+      const kick=lp.isLocal?'':`<button class="kick-btn" title="Kick ${_esc(lp.name)}" data-kick="${_esc(lp.id)}">✕</button>`;
       const cls=CLASSES[lp.classIdx];
       const pCol=lp.customColor||cls.color;
       const rdyCol=lp.ready?'#7ea879':'#c49040';
       const rdyTxt=lp.ready?'READY':'waiting...';
-      html+=`<div style="background:linear-gradient(180deg,#1e1a15,#16130f);border:1px solid ${pCol}66;border-radius:6px;padding:14px 20px;min-width:140px;text-align:center;box-shadow:0 0 20px ${pCol}18,inset 0 1px 0 rgba(255,255,255,0.04)">
+      html+=`<div style="position:relative;background:linear-gradient(180deg,#1e1a15,#16130f);border:1px solid ${pCol}66;border-radius:6px;padding:14px 20px;min-width:140px;text-align:center;box-shadow:0 0 20px ${pCol}18,inset 0 1px 0 rgba(255,255,255,0.04)">${kick}
         <div style="font-size:22px;margin-bottom:4px">${cls.icon||'⚔'}</div>
-        <div style="color:${pCol};font-weight:700;font-size:16px;letter-spacing:1px;text-transform:uppercase">${lp.name}</div>
+        <div style="color:${pCol};font-weight:700;font-size:16px;letter-spacing:1px;text-transform:uppercase">${_esc(lp.name)}</div>
         <div style="font-size:13px;margin-top:4px;color:#aaa">${cls.name}</div>
         <div style="font-size:10px;color:#8a7e6e;letter-spacing:0.5px">${cls.loadouts[lp.loadout].name}</div>
         <div style="font-size:9px;color:#444;margin-top:3px">♥${cls.hp} · ${cls.ability} · CD${cls.cd}</div>
@@ -471,6 +475,32 @@ function updateLobbyDisplay(){
     }
   }
   el.innerHTML=html;
+  el.querySelectorAll('[data-kick]').forEach(b=>b.onclick=()=>kickPlayer(b.dataset.kick));
+  _updateStartBtn();
+}
+function _esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// Who's in the visible lobby seats, and is everyone who joined from a phone ready?
+function _lobbyReady(){
+  const numP=parseInt(document.getElementById('player-sel').value);
+  const seated=lobbyPlayers.slice(0,numP);
+  const waiting=seated.filter(p=>!p.isLocal&&!p.ready);
+  return{seated,numP,waiting,ok:waiting.length===0};
+}
+function _updateStartBtn(){
+  const b=document.getElementById('start-btn');if(!b)return;
+  const r=_lobbyReady();
+  b.disabled=!r.ok;
+  b.textContent=r.ok?'START CAMPAIGN':'WAITING FOR '+(r.waiting.length===1?_esc(r.waiting[0].name).toUpperCase():r.waiting.length+' PLAYERS')+' TO READY';
+  b.title=r.ok?'':'Every player who joined from a phone has to tap READY. Kick (✕) anyone who is AFK.';
+}
+// Host removes a phone player from the lobby. That phone is told and can't silently rejoin this room.
+const _kicked=new Set();
+function kickPlayer(id){
+  if(!id||id==='host')return;
+  _kicked.add(id);
+  lobbyPlayers=lobbyPlayers.filter(p=>p.id!==id);
+  _net.send(id,{type:'kicked'});
+  updateLobbyDisplay();
 }
 let isTutorial=false,tutStep=0,tutFlags={moved:false,attacked:false,skilled:false,defended:false};
 const TUT_HINTS=[
@@ -4080,6 +4110,7 @@ function _updateRoomUI(st){
 }
 const _net=PQNet.createHost({onMessage:d=>_handleMsg(d),onStatus:_updateRoomUI});
 function _handleMsg(d){
+  if(d.id&&_kicked.has(d.id)){if(d.type==='ping'||d.type==='lobby_join')_net.send(d.id,{type:'kicked'});return;}
   if(d.id)_ctrlSeen[d.id]=Date.now();
   if(d.type==='input'&&running&&!gameOver&&!paused){
     let inp;
@@ -4103,7 +4134,7 @@ function _handleMsg(d){
     keyHintShown=true;
   }
   if(d.type==='command'){
-    if(d.cmd==='start'&&gamePhase==='lobby')startFromLobby();
+    if(d.cmd==='start'&&gamePhase==='lobby'&&_lobbyReady().ok)startFromLobby();
     if(d.cmd==='pause'&&running){paused=!paused;document.getElementById('pause-overlay').classList.toggle('show',paused);if(paused)updatePauseInfo();}
     if(d.cmd==='config'){
       if(d.classIdx!=null)document.getElementById('class-sel').value=d.classIdx;
@@ -4113,9 +4144,11 @@ function _handleMsg(d){
   }
   if(d.type==='lobby_join'){
     const existing=lobbyPlayers.find(p=>p.id===d.id);
-    if(existing){existing.classIdx=d.classIdx;existing.loadout=d.loadout;existing.ready=d.ready;existing.name=d.name;if(d.customColor)existing.customColor=d.customColor;else delete existing.customColor;}
+    if(existing){existing.classIdx=d.classIdx;existing.loadout=d.loadout;existing.ready=d.ready;existing.name=d.name||existing.autoName;if(d.customColor)existing.customColor=d.customColor;else delete existing.customColor;}
     else if(lobbyPlayers.length<parseInt(document.getElementById('player-sel').value)){
-      lobbyPlayers.push({id:d.id,name:d.name||'P'+(lobbyPlayers.length+1),classIdx:d.classIdx||0,loadout:d.loadout||0,ready:d.ready||false,isLocal:false,customColor:d.customColor||null});
+      // unnamed phones get the first free seat name (P2, P3, …) so nobody shares a name
+      let n=2;while(lobbyPlayers.some(p=>p.name==='P'+n||p.autoName==='P'+n))n++;
+      lobbyPlayers.push({id:d.id,autoName:'P'+n,name:d.name||'P'+n,classIdx:d.classIdx||0,loadout:d.loadout||0,ready:d.ready||false,isLocal:false,customColor:d.customColor||null});
     }
     updateLobbyDisplay();
   }
@@ -4215,6 +4248,9 @@ function _buildState(forId){
     spectator,
     claimable:spectator?players.map((p,i)=>p._dc?{slot:i,name:p.name,color:p.color,loadout:p.loadout,hp:p.hp,maxHp:p.maxHp,ghost:!!p.ghost}:null).filter(Boolean):null,
     inLobby:forId?lobbyPlayers.some(p=>p.id===forId):null,
+    lobby:gamePhase==='lobby'?(()=>{const r=_lobbyReady();return{max:r.numP,
+      full:!!forId&&!r.seated.some(p=>p.id===forId)&&lobbyPlayers.length>=r.numP,
+      players:r.seated.map(p=>({name:p.isLocal?(p.name||'HOST'):p.name,host:!!p.isLocal,ready:!!p.ready,you:p.id===forId,color:p.customColor||CLASSES[p.classIdx].color}))};})():null,
     running,gameOver,paused,tickCount,tickPct:Math.min(1,tickTimer/tickMs),
     won:gamePhase==='results'&&campaignNode>=campaignTotal-1&&enemies.every(e=>e.hp<=0),
     player:_serializePlayer(pp),
@@ -4238,7 +4274,8 @@ function _buildState(forId){
   });
 }
 // Each phone gets only its own state, over whichever transport it joined on.
-setInterval(()=>{_net.clientIds().forEach(id=>_net.send(id,_buildState(id)));},200);
+setInterval(()=>{_net.clientIds().forEach(id=>{if(!_kicked.has(id))_net.send(id,_buildState(id));});},200);
+document.getElementById('player-sel').addEventListener('change',()=>{if(gamePhase==='lobby')updateLobbyDisplay();});
 
 // === Menu background particle renderer ===
 (function(){

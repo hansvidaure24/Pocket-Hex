@@ -138,7 +138,7 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
   <div style="width:80px;height:1px;background:linear-gradient(90deg,transparent,rgba(140,120,80,0.3),transparent);margin:6px auto 6px"></div>
   <div style="font-size:11px;color:#555;text-align:center;letter-spacing:1px;text-transform:uppercase">Customize while you wait</div>
   <div style="display:flex;gap:8px;align-items:center;justify-content:center;width:100%;padding:4px 12px">
-    <input id="menu-name" type="text" maxlength="8" placeholder="Name" value="" style="background:#16130f;color:#eee;border:1px solid rgba(140,120,80,0.3);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:14px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:center;width:120px;user-select:text;touch-action:auto;-webkit-user-select:text">
+    <input id="menu-name" type="text" maxlength="8" placeholder="Name" value="" style="background:#16130f;color:#eee;border:1px solid rgba(140,120,80,0.3);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:16px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:center;width:120px;user-select:text;touch-action:auto;-webkit-user-select:text">
     <div id="menu-colors" style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center"></div>
   </div>
   <div id="menu-class-grid" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;width:100%;padding:0 12px;max-width:360px"></div>
@@ -151,7 +151,7 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
   <div class="room-code" id="ctrl-room-code">LOCAL GAME</div>
   <div style="font-size:11px;color:#555;text-align:center;margin-top:6px;letter-spacing:1px;text-transform:uppercase">Customize</div>
   <div style="display:flex;gap:8px;align-items:center;justify-content:center;width:100%;padding:0 12px">
-    <input id="player-name" type="text" maxlength="8" placeholder="Name" value="" style="flex:1;background:#16130f;color:#eee;border:1px solid rgba(140,120,80,0.3);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:14px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:center;max-width:140px;user-select:text;touch-action:auto;-webkit-user-select:text">
+    <input id="player-name" type="text" maxlength="8" placeholder="Name" value="" style="flex:1;background:#16130f;color:#eee;border:1px solid rgba(140,120,80,0.3);border-radius:4px;padding:8px 10px;font-family:inherit;font-size:16px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-align:center;max-width:140px;user-select:text;touch-action:auto;-webkit-user-select:text">
     <div id="color-picks" style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center"></div>
   </div>
   <div style="font-size:12px;color:#8a7e6e;text-align:center;margin-top:4px;letter-spacing:1px;text-transform:uppercase">Pick your class</div>
@@ -160,7 +160,8 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
   <div id="loadout-row" style="display:flex;gap:8px;justify-content:center;width:100%"></div>
   <div id="loadout-desc" style="font-size:10px;color:#aaa;text-align:center;min-height:14px"></div>
   <button id="ready-btn" class="ready-btn" style="background:linear-gradient(180deg,#a37a30,#7a5e25);color:#fff">READY UP</button>
-  <div id="lobby-status" style="font-size:11px;color:#888;text-align:center">Waiting for host to start...</div>
+  <div id="lobby-roster" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;width:100%"></div>
+  <div id="lobby-status" style="font-size:12px;color:#888;text-align:center;min-height:16px">Pick your hero, then tap READY UP</div>
   <div style="font-size:9px;color:#444;text-align:center;line-height:1.6;margin-top:4px;padding:0 16px">Swipe to move · ATK hits adjacent · SKILL has cooldown · DEF blocks half</div>
 </div>
 
@@ -225,6 +226,23 @@ body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans
 </div>
 
 <script>
+// === No zooming on the controller ===
+// iOS Safari ignores user-scalable=no, so block pinch and double-tap zoom by hand.
+(function(){
+  const stop=e=>e.preventDefault();
+  ['gesturestart','gesturechange','gestureend'].forEach(t=>document.addEventListener(t,stop,{passive:false}));
+  document.addEventListener('touchmove',e=>{if(e.touches.length>1||(e.scale&&e.scale!==1))e.preventDefault();},{passive:false});
+  let lastEnd=0;
+  document.addEventListener('touchend',e=>{
+    const now=Date.now();
+    const typing=e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA');
+    if(!typing&&now-lastEnd<350)e.preventDefault(); // second tap of a double-tap
+    lastEnd=now;
+  },{passive:false});
+  document.addEventListener('dblclick',stop,{passive:false});
+  document.addEventListener('wheel',e=>{if(e.ctrlKey)e.preventDefault();},{passive:false}); // trackpad pinch
+})();
+
 // === Networking: see net.js (relay + PeerJS + same-browser) ===
 let _link=null;
 let state=null,classData=null,myId=null;
@@ -323,7 +341,7 @@ function buildMenuClassGrid(){
   </div>`).join('');
   el.querySelectorAll('div[data-ci]').forEach(d=>{
     d.addEventListener('click',()=>{
-      selectedClass=parseInt(d.dataset.ci);selectedLoadout=0;
+      selectedClass=parseInt(d.dataset.ci);selectedLoadout=0;setReady(false);
       buildMenuClassGrid();if(classData)buildClassCards();sendLobbyUpdate();
     });
   });
@@ -350,7 +368,7 @@ function buildClassCards(){
   grid.querySelectorAll('.class-card').forEach(card=>{
     card.addEventListener('click',()=>{
       selectedClass=parseInt(card.dataset.ci);
-      selectedLoadout=0;
+      selectedLoadout=0;setReady(false);
       buildClassCards();buildLoadoutBtns();sendLobbyUpdate();
     });
   });
@@ -366,7 +384,7 @@ function buildLoadoutBtns(){
     </div>`).join('');
   row.querySelectorAll('.loadout-btn').forEach(btn=>{
     btn.addEventListener('click',()=>{
-      selectedLoadout=parseInt(btn.dataset.li);
+      selectedLoadout=parseInt(btn.dataset.li);setReady(false);
       buildLoadoutBtns();sendLobbyUpdate();
     });
   });
@@ -374,20 +392,58 @@ function buildLoadoutBtns(){
 }
 
 // === Ready button ===
-document.getElementById('ready-btn').addEventListener('click',()=>{
-  isReady=!isReady;
+function setReady(v){
+  isReady=!!v;
   const btn=document.getElementById('ready-btn');
-  btn.textContent=isReady?'✓ READY!':'READY UP';
+  btn.textContent=isReady?'✓ READY · tap to change':'READY UP';
   btn.style.background=isReady?'linear-gradient(180deg,#4a7a50,#3a5a35)':'linear-gradient(180deg,#a37a30,#7a5e25)';
   btn.style.color='#fff';
   btn.style.borderColor=isReady?'rgba(126,168,121,0.5)':'rgba(184,148,62,0.4)';
+  if(state)renderLobby(state);
+}
+document.getElementById('ready-btn').addEventListener('click',()=>{
+  setReady(!isReady);
   if(navigator.vibrate)navigator.vibrate(isReady?[30,20,30]:20);
   sendLobbyUpdate();
 });
+// Lobby roster + a status line that says what happens next
+function _escC(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function renderLobby(d){
+  const L=d.lobby;if(!L)return;
+  const roster=document.getElementById('lobby-roster');
+  const key=JSON.stringify(L)+isReady;
+  if(roster.dataset.key===key)return;
+  roster.dataset.key=key;
+  roster.innerHTML=L.players.map(p=>`<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;background:#1a1714;border:1px solid ${p.you?'#b8943e':p.color+'55'};color:${p.color}">${_escC(p.name)}${p.you?' (you)':''}<span style="color:${p.ready?'#7ea879':'#8a7e6e'}">${p.ready?'✓':'…'}</span></div>`).join('');
+  const st=document.getElementById('lobby-status');
+  const btn=document.getElementById('ready-btn');
+  if(L.full){
+    btn.style.display='none';
+    st.textContent=`Lobby is full (${L.max}/${L.max}). Ask the host to raise the party size or make room.`;st.style.color='#c45a3c';
+    return;
+  }
+  btn.style.display='';
+  const notReady=L.players.filter(p=>!p.ready&&!p.you);
+  if(!isReady){st.textContent='Pick your hero, then tap READY UP';st.style.color='#c9973e';}
+  else if(notReady.length){st.textContent="You're ready · waiting for "+notReady.map(p=>p.name).join(', ');st.style.color='#888';}
+  else{st.textContent="Everyone's ready · waiting for the host to start";st.style.color='#7ea879';}
+}
+// Host kicked this phone: stop reconnecting and say so.
+function _onKicked(){
+  if(_link){_link.close();_link=null;}
+  try{sessionStorage.removeItem('pq-room');localStorage.removeItem('pq-last');}catch(e){}
+  try{history.replaceState(null,'',location.pathname);}catch(e){}
+  setReady(false);state=null;
+  showScreen('menu');
+  document.getElementById('join-status').textContent='The host removed you from this game.';
+  document.getElementById('join-btn').disabled=false;
+  _setBar('disconnected','Removed by host');
+  if(navigator.vibrate)navigator.vibrate([60,40,60]);
+}
 
 function sendLobbyUpdate(){
   const customName=document.getElementById('player-name').value.trim().toUpperCase()||null;
-  _send({type:'lobby_join',id:myId,name:customName||'P2',classIdx:selectedClass,loadout:selectedLoadout,ready:isReady,customColor:selectedColor});
+  _send({type:'lobby_join',id:myId,name:customName,classIdx:selectedClass,loadout:selectedLoadout,ready:isReady,customColor:selectedColor});
   if(_link&&_link.connected)_rememberRoom(_link.code); // keep the saved name current for "Rejoin as …"
 }
 
@@ -486,9 +542,14 @@ function showRejoin(d){
 }
 
 // === Receive state ===
+let _prevPhase=null;
 function _handleState(d){
+  if(d.type==='kicked'){_onKicked();return;}
   if(d.type!=='state')return;
   if(d.forId&&d.forId!==myId)return;
+  // back in the lobby after a run: everyone readies up again
+  if(d.gamePhase==='lobby'&&_prevPhase&&_prevPhase!=='lobby'&&isReady)setReady(false);
+  _prevPhase=d.gamePhase;
   state=d;
   if(d.classes&&!classData){classData=d.classes;buildClassCards();}
 
@@ -501,6 +562,7 @@ function _handleState(d){
   } else if(d.gamePhase==='lobby'){
     showScreen('lobby');
     if(classData&&!document.querySelector('.class-card'))buildClassCards();
+    renderLobby(d);
   } else if(d.gamePhase==='game'&&d.upgradePhase){
     if(!d.upgradePhase.picked){
       showScreen('upgrade-screen');
