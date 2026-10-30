@@ -411,7 +411,7 @@ function _escC(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;
 function renderLobby(d){
   const L=d.lobby;if(!L)return;
   const roster=document.getElementById('lobby-roster');
-  const key=JSON.stringify(L)+isReady;
+  const key=JSON.stringify(L)+isReady+d.mode;
   if(roster.dataset.key===key)return;
   roster.dataset.key=key;
   roster.innerHTML=L.players.map(p=>`<div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;background:#1a1714;border:1px solid ${p.you?'#b8943e':p.color+'55'};color:${p.color}">${_escC(p.name)}${p.you?' (you)':''}<span style="color:${p.ready?'#7ea879':'#8a7e6e'}">${p.ready?'✓':'…'}</span></div>`).join('');
@@ -423,10 +423,11 @@ function renderLobby(d){
     return;
   }
   btn.style.display='';
+  const modeTag=d.mode==='survival'?'Survival · ':'';
   const notReady=L.players.filter(p=>!p.ready&&!p.you);
-  if(!isReady){st.textContent='Pick your hero, then tap READY UP';st.style.color='#c9973e';}
-  else if(notReady.length){st.textContent="You're ready · waiting for "+notReady.map(p=>p.name).join(', ');st.style.color='#888';}
-  else{st.textContent="Everyone's ready · waiting for the host to start";st.style.color='#7ea879';}
+  if(!isReady){st.textContent=modeTag+'Pick your hero, then tap READY UP';st.style.color='#c9973e';}
+  else if(notReady.length){st.textContent=modeTag+"You're ready · waiting for "+notReady.map(p=>p.name).join(', ');st.style.color='#888';}
+  else{st.textContent=modeTag+"Everyone's ready · waiting for the host to start";st.style.color='#7ea879';}
 }
 // Host kicked this phone: stop reconnecting and say so.
 function _onKicked(){
@@ -692,7 +693,7 @@ function _handleState(d){
     // info strip
     if(d.biome)document.getElementById('info-biome').textContent=d.biome;
     const encIcon=d.activeBoss?'⭐':d.enemyCount===0?'✓':'⚔';
-    document.getElementById('info-enc').textContent=`${encIcon} ${d.encounter}/${d.encounterTotal}`;
+    document.getElementById('info-enc').textContent=d.encounterTotal==null?`🌊 Wave ${d.encounter}${d.score!=null?' · '+d.score+' pts':''}`:`${encIcon} ${d.encounter}/${d.encounterTotal}`;
     const killed=d.enemyTotal-d.enemyCount;
     const foesPct=d.enemyTotal>0?Math.round(killed/d.enemyTotal*100):100;
     document.getElementById('info-foes').textContent=d.enemyCount>0?`${d.enemyCount} foes (${foesPct}%)`:'All clear!';

@@ -53,7 +53,7 @@ canvas{display:block;cursor:crosshair}
 #stats-box button{margin-top:18px}
 #pause-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:8;justify-content:center;align-items:center;backdrop-filter:blur(4px)}
 #pause-overlay.show{display:flex;flex-direction:column;gap:8px;align-items:center}
-#pause-overlay span{font-size:48px;color:#fff;font-weight:700;text-shadow:0 2px 0 rgba(0,0,0,0.5);letter-spacing:8px;text-transform:uppercase}
+#pause-overlay>span{font-size:48px;color:#fff;font-weight:700;text-shadow:0 2px 0 rgba(0,0,0,0.5);letter-spacing:8px;text-transform:uppercase}
 #pause-overlay .pause-info{font-size:11px;color:#555;text-align:center;line-height:1.8;background:linear-gradient(180deg,rgba(14,14,30,0.8),rgba(10,10,22,0.8));border:1px solid rgba(140,120,80,0.2);border-radius:4px;padding:8px 16px}
 #transition-overlay{display:none;position:fixed;inset:0;background:linear-gradient(180deg,rgba(4,4,14,0.97),rgba(8,6,20,0.98));z-index:9;justify-content:center;align-items:center;flex-direction:column;gap:14px;padding:20px;backdrop-filter:blur(4px)}
 #transition-overlay.show{display:flex}
@@ -82,6 +82,7 @@ canvas{display:block;cursor:crosshair}
 <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="net-config.js?v=3"></script>
 <script src="net.js?v=3"></script>
+<script src="survival.js?v=2"></script>
 </head>
 <body>
 <!-- MENU BG CANVAS -->
@@ -100,10 +101,11 @@ canvas{display:block;cursor:crosshair}
   <div id="lobby-net" style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#c9973e;margin-top:-4px">○ Connecting…</div>
   <div id="lobby-players" style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin:8px 0"></div>
   <div class="gpanel" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center;padding:8px 16px">
+    <label>Mode:<select id="mode-sel" onchange="onModeChange()"><option value="campaign" selected>Campaign</option><option value="survival">Survival</option></select></label>
     <label>Party:<select id="player-sel"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option></select></label>
     <label>Speed:<select id="speed-sel"><option value="2000">Chill</option><option value="1500" selected>Normal</option><option value="1000">Frantic</option></select></label>
     <label>Difficulty:<select id="diff-sel"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Hard</option></select></label>
-    <label>Length:<select id="length-sel"><option value="4" selected>Short (4)</option><option value="6">Long (6)</option></select></label>
+    <label id="length-wrap">Length:<select id="length-sel"><option value="4" selected>Short (4)</option><option value="6">Long (6)</option></select></label><span id="best-score" style="color:#b8943e;font-size:12px;letter-spacing:1px;display:none"></span>
     <label>Biome:<select id="biome-sel"><option value="random" selected>Random</option><option value="0">Crypt</option><option value="1">Swamp</option><option value="2">Volcano</option><option value="3">Ruins</option></select></label>
   </div>
   <div class="gpanel" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center;padding:8px 16px">
@@ -347,13 +349,24 @@ let _irisLastT=0;
   updateIris(dt);drawIris();
 })(0);
 let HEX=34;const SQRT3=Math.sqrt(3);let GRID_R=4;
+// Game mode + board. Campaign uses a small hexagon of radius GRID_R. Survival (survival.js) sets
+// BOARD to a full-screen rectangle whose outer ring is a spawn lane only enemies may enter.
+let gameMode='campaign',BOARD=null;
+let _hexCache={r:-1,list:[]};
+function boardHexes(){
+  if(BOARD)return BOARD.list;
+  if(_hexCache.r!==GRID_R){const list=[];for(let q=-GRID_R;q<=GRID_R;q++)for(let r=-GRID_R;r<=GRID_R;r++)if(hDist({q,r},{q:0,r:0})<=GRID_R)list.push({q,r});_hexCache={r:GRID_R,list};}
+  return _hexCache.list;
+}
+function rk(v){return v===true?1:(v||0);}
+function inLane(q,r){return !!BOARD&&BOARD.lane.has(q+','+r);}
 
 // === Sprites ===
 const SPRITES={};
 const SPRITE_PATHS={
   warrior:'assets/classes/warrior.svg',mage:'assets/classes/mage.svg',rogue:'assets/classes/rogue.svg',cleric:'assets/classes/cleric.svg',
   charger:'assets/enemies/charger.svg',splasher:'assets/enemies/splasher.svg',glasscannon:'assets/enemies/glasscannon.svg',
-  tank:'assets/enemies/tank.svg',healer:'assets/enemies/healer.svg',mimic:'assets/enemies/mimic.svg',
+  tank:'assets/enemies/tank.svg',healer:'assets/enemies/healer.svg',mimic:'assets/enemies/mimic.svg',swarm:'assets/enemies/swarmling.svg',
   warlord:'assets/bosses/warlord.svg',lich:'assets/bosses/lich.svg',hydra:'assets/bosses/hydra.svg',
   'terrain-wall':'assets/ui/terrain-wall.svg','terrain-hazard':'assets/ui/terrain-hazard.svg',
   'terrain-cover':'assets/ui/terrain-cover.svg','terrain-lava':'assets/ui/terrain-lava.svg',
@@ -490,7 +503,7 @@ function _updateStartBtn(){
   const b=document.getElementById('start-btn');if(!b)return;
   const r=_lobbyReady();
   b.disabled=!r.ok;
-  b.textContent=r.ok?'START CAMPAIGN':'WAITING FOR '+(r.waiting.length===1?_esc(r.waiting[0].name).toUpperCase():r.waiting.length+' PLAYERS')+' TO READY';
+  b.textContent=r.ok?'START '+(selectedMode()==='survival'?'SURVIVAL':'CAMPAIGN'):'WAITING FOR '+(r.waiting.length===1?_esc(r.waiting[0].name).toUpperCase():r.waiting.length+' PLAYERS')+' TO READY';
   b.title=r.ok?'':'Every player who joined from a phone has to tap READY. Kick (✕) anyone who is AFK.';
 }
 // Host removes a phone player from the lobby. That phone is told and can't silently rejoin this room.
@@ -510,18 +523,59 @@ const TUT_HINTS=[
   'Press G to DEFEND',
   'Nice! Starting real campaign...',
 ];
+function encLabel(){return gameMode==='survival'?'Wave '+survivalWave():'Enc '+(campaignNode+1)+'/'+campaignTotal;}
+function selectedMode(){const m=document.getElementById('mode-sel');return m&&m.value==='survival'?'survival':'campaign';}
+function onModeChange(){
+  const surv=selectedMode()==='survival';
+  document.getElementById('length-wrap').style.display=surv?'none':'';
+  // survival plays best a notch faster: default Normal -> Frantic
+  const sp=document.getElementById('speed-sel');
+  if(surv&&sp.value==='1500')sp.value='1000';
+  if(!surv&&sp.value==='1000')sp.value='1500';
+  document.getElementById('start-btn').dataset.mode=selectedMode();
+  updateBestScoreLabel();
+  if(gamePhase==='lobby')updateLobbyDisplay();
+}
 function startFromLobby(){
   irisWipe({speed:0.004,color:'#000',hold:120,onMid:()=>{
     setPhase('game');
     if(!hostPlaying)document.getElementById('touch-btns').style.display='none';
-    startCampaign();
+    if(selectedMode()==='survival')startSurvival();else startCampaign();
   }});
+}
+// Pause screen: start the current mode over with the same party, or abandon the run
+function restartRun(){
+  irisWipe({speed:0.005,color:'#000',hold:80,onMid:()=>{
+    document.getElementById('pause-overlay').classList.remove('show');paused=false;
+    if(gameMode==='survival')startSurvival();else startCampaign();
+  }});
+}
+function quitToLobby(){
+  irisWipe({speed:0.005,color:'#000',hold:80,onMid:()=>{
+    ['pause-overlay','stats-overlay','transition-overlay'].forEach(id=>document.getElementById(id).classList.remove('show'));
+    paused=false;running=false;gameOver=true;window._upgradeState=null;audio.stopDrone();
+    goToLobby();
+  }});
+}
+// Results screen: replay the same mode with the same party, or go back to the lobby
+function playAgain(){
+  irisWipe({speed:0.005,color:'#000',hold:80,onMid:()=>{
+    document.getElementById('stats-overlay').classList.remove('show');
+    setPhase('game');
+    if(gameMode==='survival')startSurvival();else startCampaign();
+  }});
+}
+// Upgrades, stats and titles are keyed by name, so two "BOB"s would share them.
+function dedupeNames(list){
+  const seen={};
+  list.forEach(p=>{const base=p.name;let n=base,k=2;while(seen[n.toUpperCase()]){n=base+k;k++;}seen[n.toUpperCase()]=1;p.name=n;});
 }
 function startPractice(){
   irisWipe({speed:0.004,color:'#000',hold:120,onMid:()=>{
     setPhase('game');
     if(!hostPlaying)document.getElementById('touch-btns').style.display='none';
     isTutorial=hostPlaying;tutStep=0;tutFlags={moved:false,attacked:false,skilled:false,defended:false};
+    gameMode='campaign';BOARD=null;
     // minimal campaign setup — just host player vs 1 tank
     entities=[];players=[];enemies=[];pendingInput=null;tickCount=0;totalTicks=0;gameOver=false;paused=false;
     damageNumbers=[];flashEffects=[];projectiles=[];deathEffects=[];aoeEffects=[];trailEffects=[];statusParticles=[];
@@ -560,6 +614,7 @@ function startPractice(){
     entities=[...players,...enemies];
     generateTerrain('combat');
     tickMs=2000;tickTimer=0;running=true;paused=false;
+    dedupeNames(players);
     initStats();
     // snap camera
     camOffX=-HEX*(SQRT3*p.q+SQRT3/2*p.r);
@@ -814,10 +869,10 @@ function h2p(q,r){return{x:HEX*(SQRT3*q+SQRT3/2*r)+C.width/2+camOffX,y:HEX*1.5*r
 function p2h(px,py){const x=px-C.width/2-camOffX,y=py-C.height/2-camOffY;const q=(SQRT3/3*x-1/3*y)/HEX,r=(2/3*y)/HEX;return hexRound(q,r);}
 function hDist(a,b){return(Math.abs(a.q-b.q)+Math.abs(a.q+a.r-b.q-b.r)+Math.abs(a.r-b.r))/2;}
 function hNbrs(q,r){return[{q:q+1,r},{q:q-1,r},{q,r:r+1},{q,r:r-1},{q:q+1,r:r-1},{q:q-1,r:r+1}];}
-function inGrid(q,r){return hDist({q,r},{q:0,r:0})<=GRID_R;}
+function inGrid(q,r){return BOARD?BOARD.cells.has(q+','+r):hDist({q,r},{q:0,r:0})<=GRID_R;}
 function terrainAt(q,r){return terrain.find(t=>t.q===q&&t.r===r);}
 function isWall(q,r){const t=terrainAt(q,r);return t&&t.type===T_WALL;}
-function isPassable(q,r,ex){if(!inGrid(q,r)||isWall(q,r))return false;return!entities.find(e=>e.q===q&&e.r===r&&e!==ex&&(e.hp>0||e.ghost));}
+function isPassable(q,r,ex){if(!inGrid(q,r)||isWall(q,r))return false;if(ex&&!ex.isEnemy&&inLane(q,r))return false;if(BOARD)return!BOARD.occupied(q,r,ex);return!entities.find(e=>e.q===q&&e.r===r&&e!==ex&&(e.hp>0||e.ghost));}
 function hexRound(fq,fr){const fs=-fq-fr;let rq=Math.round(fq),rr=Math.round(fr),rs=Math.round(fs);const dq=Math.abs(rq-fq),dr=Math.abs(rr-fr),ds=Math.abs(rs-fs);if(dq>dr&&dq>ds)rq=-rr-rs;else if(dr>ds)rr=-rq-rs;return{q:rq,r:rr};}
 
 // reachable hexes for movement preview
@@ -877,7 +932,7 @@ function drawGrid(ts){
   if(alive0&&skillPreview&&p0.cdTimer<=0){
     skillSet=new Set();
     if(p0.classIdx===0) hNbrs(p0.q,p0.r).forEach(n=>{if(inGrid(n.q,n.r))skillSet.add(n.q+','+n.r);}); // cleave
-    else if(p0.classIdx===1) { for(let q=-GRID_R;q<=GRID_R;q++)for(let r=-GRID_R;r<=GRID_R;r++){if(inGrid(q,r)&&hDist({q,r},p0)<=2)skillSet.add(q+','+r);} } // fireball
+    else if(p0.classIdx===1) { for(const{q,r}of boardHexes()){if(hDist({q,r},p0)<=2)skillSet.add(q+','+r);} } // fireball
     else if(p0.classIdx===2) { // rogue dash: 3 hex line toward nearest enemy
       const ne=nearestEnemy(p0);
       if(ne){const dq=Math.sign(ne.q-p0.q),dr=Math.sign(ne.r-p0.r);let cq=p0.q,cr=p0.r;for(let s=0;s<3;s++){cq+=dq;cr+=dr;if(!inGrid(cq,cr)||isWall(cq,cr))break;skillSet.add(cq+','+cr);}}
@@ -885,17 +940,16 @@ function drawGrid(ts){
     else if(p0.classIdx===3) hNbrs(p0.q,p0.r).forEach(n=>{if(inGrid(n.q,n.r))skillSet.add(n.q+','+n.r);}); // heal
   }
 
-  for(let q=-GRID_R;q<=GRID_R;q++)for(let r=-GRID_R;r<=GRID_R;r++){
-    if(!inGrid(q,r))continue;
+  for(const{q,r}of boardHexes()){
     const{x,y}=h2p(q,r);
     const t=terrainAt(q,r);
     const key=q+','+r;
     hexPath(x,y,HEX-2);
 
     // depth-of-field: hexes far from player are dimmer
-    const edgeDist=GRID_R-Math.max(Math.abs(q),Math.abs(r),Math.abs(-q-r));
+    const edgeDist=BOARD?(BOARD.lane.has(key)?0:2):GRID_R-Math.max(Math.abs(q),Math.abs(r),Math.abs(-q-r));
     let dofAlpha=edgeDist<=1?0.5+edgeDist*0.5:1;
-    if(alive0){const pDist=Math.max(Math.abs(q-p0.q),Math.abs(r-p0.r),Math.abs((-q-r)-(-p0.q-p0.r)));if(pDist>3)dofAlpha*=Math.max(0.55,1-(pDist-3)*0.08);}
+    if(alive0&&!BOARD){const pDist=Math.max(Math.abs(q-p0.q),Math.abs(r-p0.r),Math.abs((-q-r)-(-p0.q-p0.r)));if(pDist>3)dofAlpha*=Math.max(0.55,1-(pDist-3)*0.08);}
     ctx.save();if(dofAlpha<1)ctx.globalAlpha=dofAlpha;
 
     // base fill — checkerboard for depth
@@ -1017,6 +1071,7 @@ function drawGrid(ts){
 }
 
 function drawCompass(ts){
+  if(BOARD)return;
   ctx.save();ctx.globalAlpha=0.12;ctx.fillStyle='#8a8077';ctx.font='bold 9px Rajdhani,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
   const n=h2p(0,-GRID_R),s=h2p(0,GRID_R),e=h2p(GRID_R,0),w=h2p(-GRID_R,0);
   ctx.fillText('N',n.x,n.y-HEX*0.7);ctx.fillText('S',s.x,s.y+HEX*0.7);
@@ -1604,7 +1659,7 @@ function spawnProjectile(from,to,color,big){const a=h2p(from.q,from.r),b=h2p(to.
 function spawnDeath(q,r,color,big){const{x,y}=h2p(q,r);const n=big?14:8;for(let i=0;i<n;i++)deathEffects.push({x,y,vx:(Math.random()-0.5)*(big?5:3),vy:(Math.random()-0.5)*(big?5:3)-1.5,color,life:700,maxLife:700,size:big?5:3});}
 function spawnAoe(q,r,color,radius){const{x,y}=h2p(q,r);aoeEffects.push({x,y,color,life:450,maxLife:450,radius:radius||HEX*1.2});}
 function spawnTrail(q,r,color){const{x,y}=h2p(q,r);trailEffects.push({x,y,color,life:300,maxLife:300});}
-function doShake(n){const mult=parseFloat(document.getElementById('shake-sel').value)||1;screenShake={x:0,y:0,life:220,intensity:n*mult};}
+function doShake(n){if(gameMode==='survival'){if(n<12)return;n*=0.6;}const mult=parseFloat(document.getElementById('shake-sel').value)||1;screenShake={x:0,y:0,life:220,intensity:n*mult};}
 
 // === Stats ===
 function initStats(){stats={};players.forEach(p=>{if(!stats[p.name])stats[p.name]={dmgDealt:0,dmgTaken:0,heals:0,kills:0,moved:0,defends:0,ghostTicks:0,diedAt:0,overkill:0};});}
@@ -1613,6 +1668,7 @@ function stat(name,key,val){if(stats[name])stats[name][key]+=val;}
 // === Damage & Healing ===
 function dealDamage(target,dmg,attacker){
   if(target.hp<=0&&!target.ghost)return;
+  if(gameMode==='survival'&&attacker&&attacker.isEnemy&&!target.isEnemy)dmg+=survivalEnemyDmgBonus();
   // shieldbearer: immune from front (attacker in same direction as facing)
   if(target.ai==='shieldbearer'&&attacker&&target.faceDQ!=null){
     const aq=attacker.q-target.q,ar=attacker.r-target.r;
@@ -1626,17 +1682,18 @@ function dealDamage(target,dmg,attacker){
   if(!target.isEnemy&&target.defending){const before=dmg;dmg=Math.max(1,Math.floor(dmg/2));target.defending=false;if(before>dmg){spawnDmg(target.q,target.r,'PARRY','#607a90');combatLog(target.name+' parried, blocked '+(before-dmg)+' dmg','#607a90');}}
   // thorns: enemies that melee a Warrior (or player with Thorns Aura upgrade) take 1 dmg back
   if(attacker&&attacker.isEnemy&&!target.isEnemy&&target.hp>0&&(target.classIdx===0||target.hasThorns)&&hDist(attacker,target)<=1){
-    if(attacker.hp>0){attacker.hp--;spawnDmg(attacker.q,attacker.r,'-1 THORNS','#c45a3c');if(attacker.hp<=0){attacker.hp=0;spawnDeath(attacker.q,attacker.r,attacker.color,attacker.isBoss);showMsg(attacker.name+' defeated!');audio.death();}}
+    if(attacker.hp>0){spawnDmg(attacker.q,attacker.r,'THORNS','#c45a3c');dealDamage(attacker,Math.max(1,target.thorns||0),target);} // full kill credit (XP, loot, splash)
   }
   // enemy flanking: attacker is enemy, target is player, another enemy on opposite side = +1
-  if(attacker&&attacker.isEnemy&&!target.isEnemy&&target.hp>0){
+  if(attacker&&attacker.isEnemy&&!target.isEnemy&&target.hp>0&&attacker.ai!=='swarm'&&!attacker._charge){ // fodder doesn't flank, or a ring of 1-dmg swarmlings would hit for 2 each
     if(enemies.find(e=>e!==attacker&&e.hp>0&&hDist(e,target)<=1&&hDist(e,attacker)>=3)){
       dmg++;spawnDmg(target.q,target.r,'FLANKED','#ff8800');
     }
   }
   const cov=terrainAt(target.q,target.r);
-  if(cov&&cov.type===T_COVER){dmg=Math.max(1,dmg-1);spawnDmg(target.q,target.r,'COVERED','#2a6a4a');}
+  if(cov&&cov.type===T_COVER){dmg=target.bulwark?Math.max(0,dmg-2):Math.max(1,dmg-1);spawnDmg(target.q,target.r,'COVERED','#2a6a4a');if(dmg<=0)return;}
   target.hp-=dmg;
+  if(attacker&&attacker._vamp&&attacker.hp>0&&attacker.hp<attacker.maxHp&&!target.isEnemy){attacker.hp++;spawnDmg(attacker.q,attacker.r,'+1','#ff4488');}
   // enemy attack action ring + lunge
   if(attacker&&attacker.isEnemy&&attacker.hp>0){
     triggerLunge(attacker,target);
@@ -1649,7 +1706,7 @@ function dealDamage(target,dmg,attacker){
   doShake(3+dmg*2);
   if(!target.isEnemy){stat(target.name,'dmgTaken',dmg);encDmgTaken+=dmg;}
   if(attacker&&!attacker.isEnemy)stat(attacker.name,'dmgDealt',dmg);
-  if(dmg>=3){audio.crit();hitStopTimer=60;}else audio.hit();
+  if(dmg>=3){audio.crit();if(gameMode!=='survival')hitStopTimer=60;}else audio.hit();
   if(target.hp<=0){
     const overkillAmt=-target.hp;
     target.hp=0;
@@ -1665,7 +1722,8 @@ function dealDamage(target,dmg,attacker){
       combatLog(`${target.name} fell to ${attacker?attacker.name:'hazard'}!`,'#c45a3c');
       killFeed.push({killer:attacker?attacker.name:'Hazard',victim:target.name,kColor:attacker?attacker.color:'#888',vColor:target.color,boss:false,t:4000});
       if(!stats[target.name].diedAt)stats[target.name].diedAt=totalTicks+tickCount;
-      enemies.forEach(e=>{if(e.hp>0){e.maxHp=Math.max(1,e.maxHp-1);e.hp=Math.min(e.hp,e.maxHp);}});
+      if(gameMode==='survival')survivalOnPlayerDown(target);
+      else enemies.forEach(e=>{if(e.hp>0){e.maxHp=Math.max(1,e.maxHp-1);e.hp=Math.min(e.hp,e.maxHp);}});
     } else {
       if(target.ai==='splasher'){
         hNbrs(target.q,target.r).forEach(n=>{const hit=entities.find(e=>e.q===n.q&&e.r===n.r&&e.hp>0&&!e.isEnemy&&!e.ghost);if(hit)dealDamage(hit,1,target);});
@@ -1677,7 +1735,8 @@ function dealDamage(target,dmg,attacker){
       damageNumbers.push({x:skx,y:sky-8,text:'💀',color:'#888',life:1500,maxLife:1500});
       const totalK=Object.values(stats).reduce((s,st)=>s+st.kills,0);
       if(totalK===0&&attacker&&!attacker.isEnemy){showWaveAnnounce('FIRST BLOOD',attacker.name,1200);}
-      showMsg(target.name+' defeated!');audio.death();
+      if(gameMode==='survival')survivalOnEnemyKilled(target,attacker);else showMsg(target.name+' defeated!');
+      audio.death();
       killFeed.push({killer:attacker?attacker.name:'???',victim:target.name,kColor:attacker?attacker.color:'#888',vColor:target.color,boss:!!target.isBoss,t:3000});
       tryDropLoot(target);
       // XP orb particles — drift toward nearest living player
@@ -1697,7 +1756,7 @@ function dealDamage(target,dmg,attacker){
       spawnDmg(target.q,target.r,'+'+xpGain+' XP','#b8943e');
       if(partyXP>=xpToNext){
         partyXP-=xpToNext;partyLevel++;xpToNext=Math.floor(xpToNext*1.5);
-        players.forEach(p=>{if(p.hp>0){p.maxHp++;p.hp++;spawnDmg(p.q,p.r,'LEVEL UP!','#b8943e');}});
+        players.forEach(p=>{if(p.hp>0){p.maxHp++;p.hp++;spawnDmg(p.q,p.r,'LEVEL UP!','#b8943e');}else if(gameMode==='survival'&&p.ghost)p.maxHp++;});
         audio.levelup();
         combatLog(`Party leveled up to ${partyLevel}`,'#b8943e');
         showWaveAnnounce('LEVEL UP','party lv'+partyLevel+' — +1 max HP',1500);
@@ -1705,7 +1764,7 @@ function dealDamage(target,dmg,attacker){
       }
       if(attacker&&!attacker.isEnemy){
         stat(attacker.name,'kills',1);
-        if(attacker.vampiric&&attacker.hp>0&&attacker.hp<attacker.maxHp){attacker.hp=Math.min(attacker.maxHp,attacker.hp+1);spawnDmg(attacker.q,attacker.r,'+1 VAMP','#ff4488');}
+        if(attacker.vampiric&&attacker.hp>0&&attacker.hp<attacker.maxHp){const vh=rk(attacker.vampiric);attacker.hp=Math.min(attacker.maxHp,attacker.hp+vh);spawnDmg(attacker.q,attacker.r,'+'+vh+' VAMP','#ff4488');}
         if(attacker.adrenaline&&attacker.cdTimer>0){attacker.cdTimer=0;spawnDmg(attacker.q,attacker.r,'ADRENALINE!','#ff8800');}
         if(tickCount-lastKillTick<=1){killStreak++;if(killStreak>=2){const labels=['','','DOUBLE KILL','TRIPLE KILL','MULTI KILL','MEGA KILL'];spawnDmg(target.q,target.r,labels[Math.min(killStreak,5)]||'RAMPAGE','#b8943e');audio.combo();}}
         else killStreak=1;
@@ -1748,7 +1807,8 @@ function moveToward(e,target){
   if(isSlowed(e)&&tickCount%2===0)return;
   const nbrs=hNbrs(e.q,e.r);let best=null,bd=hDist(e,target);
   let sidestep=null,sd=Infinity;
-  nbrs.forEach(n=>{
+  if(BOARD)best=survivalNextStep(e,target);
+  else nbrs.forEach(n=>{
     if(!isPassable(n.q,n.r,e))return;
     const t=terrainAt(n.q,n.r);
     const penalty=(t&&(t.type===T_HAZARD||t.type===T_LAVA))?((t.type===T_LAVA)?2:0.5):0;
@@ -1802,7 +1862,7 @@ function doAttack(p){
   if(players.find(a=>a!==p&&a.hp>0&&hDist(a,t)<=1&&hDist(a,p)>=3))dmg++;
   dmg+=players.filter(a=>a.ghost&&hDist(a,p)<=1).length;
   if(p.lastStand)dmg++;
-  if(p.berserk&&p.hp<=Math.ceil(p.maxHp*0.5))dmg++;
+  if(p.berserk&&p.hp<=Math.ceil(p.maxHp*0.5))dmg+=rk(p.berserk);
   if(p.classIdx===2&&t.faceDQ!=null){
     const behindQ=t.q-t.faceDQ,behindR=t.r-t.faceDR;
     if(p.q===behindQ&&p.r===behindR){dmg++;spawnDmg(t.q,t.r,'BACKSTAB!','#7ea879');}
@@ -1810,7 +1870,12 @@ function doAttack(p){
   const critChance=0.15+(p.critBonus||0);const crit=Math.random()<critChance;if(crit){dmg++;spawnDmg(t.q,t.r,'CRIT!','#ff6600');audio.crit();screenFlash={color:'#ffffff',life:80,maxLife:80};}
   triggerLunge(p,t);spawnProjectile(p,t,p.color);dealDamage(t,dmg,p);trackCombo(t,p);
   if(p.doubleStrike&&Math.random()<p.doubleStrike&&t.hp>0){dealDamage(t,1+(p.dmgBonus||0),p);spawnDmg(t.q,t.r,'DOUBLE!','#7ea879');}
-  if(p.poisonBlade&&t.hp>0)applyStatus(t,'poison',1);
+  if(p.poisonBlade&&t.hp>0)applyStatus(t,'poison',rk(p.poisonBlade));
+  if(p.pierce){ // survival upgrade: the enemy standing behind the target also takes a hit
+    const bq=t.q+(t.q-p.q),br=t.r+(t.r-p.r);
+    const t2=enemies.find(e=>e.q===bq&&e.r===br&&e.hp>0);
+    if(t2){spawnDmg(t2.q,t2.r,'PIERCE','#b8943e');dealDamage(t2,rk(p.pierce),p);}
+  }
   return true;
 }
 
@@ -1819,7 +1884,7 @@ function doSkill(p){
   p.cdTimer=Math.max(1,p.cd-(p.cdBonus||0));audio.skill();
   const ci=p.classIdx;
   const ghostBonus=players.filter(a=>a.ghost&&hDist(a,p)<=1).length;
-  const lsBonus=(p.lastStand?1:0)+(p.dmgBonus||0)+(p.berserk&&p.hp<=Math.ceil(p.maxHp*0.5)?1:0)+ghostBonus+(p.syncBonus||0);
+  const lsBonus=(p.lastStand?1:0)+(p.dmgBonus||0)+(p.berserk&&p.hp<=Math.ceil(p.maxHp*0.5)?rk(p.berserk):0)+ghostBonus+(p.syncBonus||0);
   if(ci===0){
     const cleaveHits=[];
     hNbrs(p.q,p.r).forEach(n=>{const t=enemies.find(e=>e.q===n.q&&e.r===n.r&&e.hp>0);if(t){spawnProjectile(p,t,'#c45a3c');dealDamage(t,1+lsBonus,p);cleaveHits.push(t);}});
@@ -1848,7 +1913,7 @@ function doSkill(p){
       const dq=useFacing?p.faceDQ:Math.sign(ne.q-p.q),dr=useFacing?p.faceDR:Math.sign(ne.r-p.r);
       for(let s=0;s<3;s++){
         const nq=p.q+dq,nr=p.r+dr;
-        if(!inGrid(nq,nr)||isWall(nq,nr))break;
+        if(!inGrid(nq,nr)||isWall(nq,nr)||inLane(nq,nr))break;
         // #4 fix: dash stops on occupied hex (allies/entities)
         const blocked=players.find(a=>a!==p&&a.q===nq&&a.r===nr&&(a.hp>0||a.ghost));
         if(blocked)break;
@@ -1905,7 +1970,7 @@ function useItem(p){
 
 function doMove(p,dq,dr){
   p.faceDQ=dq;p.faceDR=dr;
-  const steps=p.classIdx===2?2:1;
+  const steps=(p.classIdx===2||p.fleet)?2:1;
   for(let s=0;s<steps;s++){
     const nq=p.q+dq,nr=p.r+dr;
     if(isPassable(nq,nr,p)){
@@ -2001,6 +2066,15 @@ function enemyAI(e){
   const aliveEnemies=enemies.filter(en=>en.hp>0);
   e.enraged=aliveEnemies.length===1&&!e.isBoss&&enemies.length>1;
   if(e.enraged&&!e._enrageAnnounced){e._enrageAnnounced=true;spawnDmg(e.q,e.r,'ENRAGED','#c45050');combatLog(e.name+' is enraged','#c45050');}
+  // swarm: walk straight at the nearest hero and bite (Survival Swarmlings, enraged stragglers)
+  if(e.ai==='swarm'||e._charge){
+    if(hDist(e,target)>1){if(hDist(e,target)>2)e._wind=false;moveToward(e,target);} // stepping back one hex doesn't cancel a wind-up
+    if(hDist(e,target)<=1){
+      if(!e._wind){e._wind=true;e.telegraph=true;e.telegraphTarget=target;} // wind up: shown one tick ahead
+      else{e._wind=false;dealDamage(target,e.dmg||1,e);}
+    }
+    return;
+  }
 
   if(e.ai==='charger'){
     if(!e.charging){e.telegraph=true;e.telegraphTarget=target;e.charging=true;}
@@ -2018,7 +2092,10 @@ function enemyAI(e){
   if(e.ai==='splasher'){
     let cx=0,cy=0,n=0;players.forEach(p=>{if(p.hp>0){cx+=p.q;cy+=p.r;n++;}});
     if(n)moveToward(e,hexRound(cx/n,cy/n));
-    if(dist<=1)dealDamage(target,1,e);
+    if(gameMode==='survival'?hDist(e,target)<=1:dist<=1){ // campaign keeps its original timing
+      if(gameMode==='survival'&&!e._wind){e._wind=true;e.telegraph=true;e.telegraphTarget=target;}
+      else{e._wind=false;dealDamage(target,1,e);}
+    } else if(hDist(e,target)>2)e._wind=false;
     return;
   }
   if(e.ai==='tank'){
@@ -2044,7 +2121,7 @@ function enemyAI(e){
     e.bossTimer=(e.bossTimer||0)+1;
     // summon charger on tick 5,10,15
     if(e.bossTimer%5===0&&e.bossTimer<=15){
-      const sp=hNbrs(e.q,e.r).find(n=>isPassable(n.q,n.r,null));
+      const sp=canSummon()&&hNbrs(e.q,e.r).find(n=>isPassable(n.q,n.r,null));
       if(sp){
         const add={name:'Charger',hp:3,maxHp:3,color:'#d47a3c',q:sp.q,r:sp.r,prevQ:sp.q,prevR:sp.r,isEnemy:true,ai:'charger',charging:false,shootTimer:0,telegraph:false,telegraphTarget:null,spawnTick:tickCount};
         enemies.push(add);entities.push(add);
@@ -2073,7 +2150,7 @@ function enemyAI(e){
       const dead=enemies.find(d=>d.hp<=0&&!d.raised&&d!==e);
       if(dead){
         dead.raised=true;
-        const sp=hNbrs(e.q,e.r).find(n=>isPassable(n.q,n.r,null));
+        const sp=canSummon()&&hNbrs(e.q,e.r).find(n=>isPassable(n.q,n.r,null));
         if(sp){
           const add={name:'Zombie',hp:1,maxHp:1,color:'#9966cc',q:sp.q,r:sp.r,prevQ:sp.q,prevR:sp.r,isEnemy:true,ai:'splasher',charging:false,shootTimer:0,telegraph:false,telegraphTarget:null,spawnTick:tickCount};
           enemies.push(add);entities.push(add);
@@ -2138,7 +2215,7 @@ function enemyAI(e){
     }
     // fly to new position every 5 ticks
     if(e.bossTimer%5===0){
-      const open=[];for(let q=-GRID_R;q<=GRID_R;q++)for(let r=-GRID_R;r<=GRID_R;r++){if(inGrid(q,r)&&isPassable(q,r,e)&&hDist({q,r},target)>=2&&hDist({q,r},target)<=4)open.push({q,r});}
+      const open=[];for(const{q,r}of boardHexes()){if(isPassable(q,r,e)&&hDist({q,r},target)>=2&&hDist({q,r},target)<=4)open.push({q,r});}
       if(open.length){const dest=open[Math.floor(Math.random()*open.length)];spawnTrail(e.q,e.r,e.color);e.q=dest.q;e.r=dest.r;spawnDmg(e.q,e.r,'SWOOP','#cc3300');}
     } else moveToward(e,target);
     if(hDist(e,target)<=1)dealDamage(target,2,e);
@@ -2200,7 +2277,7 @@ function enemyAI(e){
     e.bossTimer=(e.bossTimer||0)+1;
     // ponytail: cap at 4 minions per summoner, unbounded if perf matters
     if(e.bossTimer%3===0&&enemies.filter(en=>en.ai==='splasher'&&en.name==='Minion'&&en.hp>0).length<4){
-      const sp=hNbrs(e.q,e.r).find(n=>isPassable(n.q,n.r,null));
+      const sp=canSummon()&&hNbrs(e.q,e.r).find(n=>isPassable(n.q,n.r,null));
       if(sp){
         const add={name:'Minion',hp:1,maxHp:1,color:'#bb88bb',q:sp.q,r:sp.r,prevQ:sp.q,prevR:sp.r,isEnemy:true,ai:'splasher',charging:false,shootTimer:0,telegraph:false,telegraphTarget:null,spawnTick:tickCount};
         enemies.push(add);entities.push(add);
@@ -2278,13 +2355,14 @@ function tick(){
   }
   // sync bonus: all living human players submitted input = +1 dmg this tick
   const livingHumans=players.filter(p=>p.hp>0&&!p.ghost&&!p.isBot);
-  const allSynced=livingHumans.length>1&&livingHumans.every((p,i)=>i===0?!!pendingInput:!!pendingInputs[i]);
+  const allSynced=livingHumans.length>1&&livingHumans.every(p=>{const i=players.indexOf(p);return i===0?!!pendingInput:!!pendingInputs[i];});
   if(allSynced){livingHumans.forEach(p=>{p.syncBonus=1;spawnDmg(p.q,p.r,'SYNC!','#b87acc');});audio.combo();}
   for(let i=0;i<players.length;i++){
     const p=players[i];
     if(!(p.hp>0||p.ghost))continue;
     const inp=i===0?pendingInput:pendingInputs[i]||null;
-    if(p.isBot&&!inp){if(!isStunned(p))botDecide(p);else spawnDmg(p.q,p.r,'STUNNED','#c9a030');}
+    // bots cool down too (only the human input path used to tick cdTimer, so AI heroes used their skill once)
+    if(p.isBot&&!inp){if(p.cdTimer>0)p.cdTimer--;if(!isStunned(p))botDecide(p);else spawnDmg(p.q,p.r,'STUNNED','#c9a030');}
     else applyPlayerInput(p,inp);
   }
   players.forEach(p=>{p.syncBonus=0;});
@@ -2298,7 +2376,7 @@ function tick(){
     if(newAdj)audio.dangerClose();
   }
   // enrage bonus: last enemy gets an extra move toward nearest player
-  enemies.forEach(e=>{if(e.enraged&&e.hp>0&&!isSlowed(e)){const t=nearestAlive(e);if(t)moveToward(e,t);}});
+  enemies.forEach(e=>{if((e.enraged||e._swift)&&e.hp>0&&!isSlowed(e)&&!isStunned(e)){const t=nearestAlive(e);if(t&&hDist(e,t)>1)moveToward(e,t);}});
 
   // resolve combos
   resolveCombo();
@@ -2372,6 +2450,7 @@ function tick(){
     }
   });
 
+  if(gameMode==='survival'){survivalAfterTick();return;}
   // check end
   const allEDead=enemies.every(e=>e.hp<=0);
   const allPDead=players.every(p=>(p.hp<=0&&!p.ghost)||(p.ghost));
@@ -2694,6 +2773,7 @@ function updateUpgradeWait(){
 function checkAllUpgradesPicked(){
   const us=window._upgradeState;if(!us||us.done)return;
   const allPicked=players.every(p=>us.picks[p.name]);
+  if(allPicked&&gameMode==='survival'){us.done=true;survivalAllPicked();return;}
   if(allPicked){
     us.done=true;
     audio.levelup();
@@ -2925,6 +3005,7 @@ function spawnNode(nodeIdx){
 }
 
 function startCampaign(){
+  gameMode='campaign';BOARD=null;
   entities=[];players=[];enemies=[];pendingInput=null;tickCount=0;totalTicks=0;gameOver=false;paused=false;
   damageNumbers=[];flashEffects=[];projectiles=[];deathEffects=[];aoeEffects=[];trailEffects=[];
   window._upgradeState=null;document.getElementById('transition-overlay').classList.remove('show');document.getElementById('stats-overlay').classList.remove('show');document.getElementById('pause-overlay').classList.remove('show');document.getElementById('narrative-overlay').classList.remove('show','fadein','fadeout');if(_narrInterval){clearInterval(_narrInterval);_narrInterval=null;}if(_narrTimeout){clearTimeout(_narrTimeout);_narrTimeout=null;}
@@ -2963,6 +3044,7 @@ function startCampaign(){
     players.push(p);
   }
 
+  dedupeNames(players);
   initStats();
   updateCampaignBar();
   spawnNode(0);
@@ -2982,8 +3064,9 @@ function startCampaign(){
 function showStats(){
   gamePhase='results';
   const box=document.getElementById('stats-box');
-  const won=campaignNode>=campaignTotal-1&&enemies.every(e=>e.hp<=0);
+  const won=gameMode!=='survival'&&campaignNode>=campaignTotal-1&&enemies.every(e=>e.hp<=0);
   const diffNames=['Easy','Normal','Hard'];
+  if(gameMode==='survival'){showStatsBody(box,survivalResultsHeader());return;}
   let html=`<h2 style="color:${won?'#7ea879':'#c45a3c'};text-shadow:0 0 20px ${won?'rgba(126,168,121,0.3)':'rgba(196,90,60,0.3)'}">${won?'CAMPAIGN VICTORY':'CAMPAIGN FAILED'}</h2>`;
   html+=`<p style="color:#8a7e6e;font-size:11px;margin-bottom:4px;letter-spacing:1px;text-transform:uppercase">${activeBiome.name} · ${diffNames[difficulty]||'Normal'} · ${players.length} players</p>`;
   const perfTxt=perfectClears>0?` · ${perfectClears} Perfect Clear${perfectClears>1?'s':''}!`:'';
@@ -3000,6 +3083,11 @@ function showStats(){
   const gradeCol={S:'#b8943e',A:'#7ea879',B:'#c49040',C:'#888',D:'#c45a3c'}[campGrade];
   html+=`<div style="margin:8px auto;font-size:52px;font-weight:900;color:${gradeCol};text-shadow:0 0 30px ${gradeCol}44;letter-spacing:4px;line-height:1">${campGrade}</div>`;
   html+=`<div style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">Campaign Rating</div>`;
+  showStatsBody(box,html,{won,totalT,campTime});
+}
+// titles + per-player cards + buttons, shared by campaign and survival results
+function showStatsBody(box,html,o){
+  o=o||{};const won=!!o.won,totalT=o.totalT||0,campTime=o.campTime||'';
 
   const titles=[];
   let maxDmg=0,maxDmgN='',maxHeals=0,maxHealsN='',maxKills=0,maxKillsN='',maxMoved=0,maxMovedN='',firstDeath=Infinity,firstDeathN='',maxGhost=0,maxGhostN='',minTaken=Infinity,minTakenN='';
@@ -3053,7 +3141,7 @@ function showStats(){
     html+=`</div>`;
   }
   html+='</div>';
-  html+='<button class="gbtn gbtn-primary" onclick="closeStats()">New Campaign</button>';
+  html+='<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap"><button class="gbtn gbtn-primary" onclick="playAgain()">Play Again</button><button class="gbtn" onclick="closeStats()">Back to Lobby</button></div>';
   box.innerHTML=html;
   document.getElementById('stats-overlay').classList.add('show');
 }
@@ -3081,6 +3169,7 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();return;
   }
   if(e.code==='KeyR'&&running&&!gameOver){
+    if(gameMode==='survival'){if(paused){restartRun();e.preventDefault();}return;} // a stray R mustn't wipe a long run
     irisWipe({speed:0.006,color:'#000',hold:60,onMid:()=>spawnNode(campaignNode)});
     e.preventDefault();return;
   }
@@ -3268,10 +3357,15 @@ function updatePauseInfo(){
   const pi=document.getElementById('pause-info');
   if(!pi)return;
   const diffNames=['Easy','Normal','Hard'];
-  let html=`<div style="color:#888;font-size:12px;margin-bottom:8px">${activeBiome.name} · ${diffNames[difficulty]||'Normal'} · Tick ${tickCount} · Enc ${campaignNode+1}/${campaignTotal} · Lv${partyLevel}</div>`;
-  // campaign progress dots
+  let html=`<div style="color:#888;font-size:12px;margin-bottom:8px">${activeBiome.name} · ${diffNames[difficulty]||'Normal'} · Tick ${tickCount} · ${encLabel()} · Lv${partyLevel}</div>`;
+  const surv=gameMode==='survival'&&typeof S!=='undefined'&&S;
+  if(surv){
+    html+=`<div style="color:#e8c878;font-size:15px;font-weight:700;letter-spacing:1px;margin-bottom:4px">WAVE ${S.wave} · ${survivalScore()} PTS · BEST ${S.best}</div>`;
+    if(S.relics.length)html+=`<div style="font-size:11px;color:#b8943e;margin-bottom:8px">${S.relics.map(r=>r.icon+' '+r.name).join(' · ')}</div>`;
+  }
+  // campaign progress dots (survival has no node map)
   html+='<div style="display:flex;gap:4px;justify-content:center;margin-bottom:10px">';
-  for(let i=0;i<campaignTotal;i++){
+  for(let i=0;i<(surv?0:campaignTotal);i++){
     const done=i<campaignNode;const cur=i===campaignNode;
     const ntype=CAMPAIGN_NODES[i]?.type;
     const icon=ntype==='boss'?'⭐':ntype==='event'?'🎁':'⚔';
@@ -3307,10 +3401,9 @@ function updatePauseInfo(){
     });
     html+='</div>';
   }
-  // controls
-  html+='<div style="font-size:9px;color:#555;margin-top:6px;line-height:1.6">WASD+QE move · Space attack · F skill · G defend · 1 item · R restart · H help</div>';
-  // new campaign button
-  html+='<div style="margin-top:8px"><button class="gbtn" style="padding:4px 14px;font-size:10px" onclick="irisWipe({speed:0.005,color:\'#000\',hold:80,onMid:startCampaign})">NEW CAMPAIGN</button></div>';
+  // controls + run buttons
+  html+=`<div style="font-size:9px;color:#555;margin-top:6px;line-height:1.6">WASD+QE move · Space attack · F skill · G defend · 1 item · R ${surv?'restart run':'restart encounter'} · H help</div>`;
+  html+=`<div style="margin-top:8px;display:flex;gap:8px;justify-content:center"><button class="gbtn" style="padding:4px 14px;font-size:10px" onclick="restartRun()">${surv?'RESTART RUN':'NEW CAMPAIGN'}</button><button class="gbtn" style="padding:4px 14px;font-size:10px" onclick="quitToLobby()">QUIT TO LOBBY</button></div>`;
   pi.innerHTML=html;
 }
 
@@ -3372,7 +3465,7 @@ function drawCanvasHud(ts){
   // campaign progress — top-left
   ctx.globalAlpha=0.6;
   const dotR=5,dotGap=18,dotY=14;
-  for(let i=0;i<campaignTotal;i++){
+  for(let i=0;i<(gameMode==='survival'?0:campaignTotal);i++){ // survival has no node map
     const dx=12+i*dotGap;
     const done=i<campaignNode||(i===campaignNode&&gameOver&&!enemies.some(e=>e.hp>0));
     const cur=i===campaignNode&&!gameOver;
@@ -3393,7 +3486,7 @@ function drawCanvasHud(ts){
   }
   // biome name
   ctx.fillStyle='#888';ctx.font='9px Rajdhani,sans-serif';ctx.textAlign='left';ctx.textBaseline='top';
-  ctx.fillText(activeBiome.name+' · Enc '+(campaignNode+1)+'/'+campaignTotal,12,dotY+dotR+4);
+  ctx.fillText(activeBiome.name+' · '+encLabel(),12,dotY+dotR+4);
   ctx.globalAlpha=1;
 
   // enemy count — top-left below campaign
@@ -3425,7 +3518,8 @@ function drawCanvasHud(ts){
 // === Render ===
 function render(ts){
   requestAnimationFrame(render);
-  let dt=ts-lastTime;lastTime=ts;
+  // cap the frame delta: after a hidden tab or a stall, don't fast-forward a burst of ticks
+  let dt=Math.min(100,Math.max(0,ts-lastTime));lastTime=ts;
 
   // hit stop
   if(hitStopTimer>0){hitStopTimer-=dt;dt=0;}
@@ -3462,8 +3556,8 @@ function render(ts){
 
   C.width=window.innerWidth;
   C.height=window.innerHeight;
-  HEX=Math.min(C.width,C.height)/(GRID_R*2+2)/1.5;
-  HEX=Math.max(28,Math.min(60,HEX));
+  if(BOARD)HEX=survivalHexSize(C.width,C.height);
+  else{HEX=Math.min(C.width,C.height)/(GRID_R*2+2)/1.5;HEX=Math.max(28,Math.min(60,HEX));}
 
   ctx.save();
   ctx.translate(screenShake.x,screenShake.y);
@@ -3484,7 +3578,8 @@ function render(ts){
 
   // camera follow — track centroid of living entities
   const living=entities.filter(e=>e.hp>0||e.ghost);
-  if(running&&living.length>0){
+  if(BOARD){camOffX=0;camOffY=0;} // survival: the whole map is always on screen
+  else if(running&&living.length>0){
     let avgQ=0,avgR=0;
     living.forEach(e=>{avgQ+=e.q;avgR+=e.r;});
     avgQ/=living.length;avgR/=living.length;
@@ -3500,7 +3595,7 @@ function render(ts){
 
   // dynamic zoom: tighten when entities are clustered
   let camZoom=1;
-  if(running&&living.length>1){
+  if(running&&living.length>1&&!BOARD){
     let minQ=99,maxQ=-99,minR=99,maxR=-99;
     living.forEach(e=>{minQ=Math.min(minQ,e.q);maxQ=Math.max(maxQ,e.q);minR=Math.min(minR,e.r);maxR=Math.max(maxR,e.r);});
     const spread=Math.max(maxQ-minQ,maxR-minR);
@@ -3515,9 +3610,10 @@ function render(ts){
   }
 
   drawGrid(ts);drawCompass(ts);
+  if(BOARD)survivalDrawBoard(ts);
 
   // grid boundary glow — subtle ring around the play area
-  if(running){
+  if(running&&!BOARD){
     const center=h2p(0,0);
     const gridPixR=HEX*(GRID_R+0.5)*SQRT3;
     ctx.save();ctx.globalAlpha=0.08;
@@ -3718,7 +3814,7 @@ function render(ts){
   const diffCol=['#7ea879','#c49040','#c45a3c'][difficulty]||'#888';
   const totalDmgDealt=Object.values(stats).reduce((s,st)=>s+st.dmgDealt,0);
   // info panel background
-  const hudTxt=`${diffLabel}  ·  Tick ${tickCount}  ·  ${timeStr}  ·  Enc ${campaignNode+1}/${campaignTotal}  ·  ${aliveE} foes  ·  Lv${partyLevel}  ·  ${totalDmgDealt} dmg${lastStandTxt}`;
+  const hudTxt=`${diffLabel}  ·  Tick ${tickCount}  ·  ${timeStr}  ·  ${encLabel()}  ·  ${aliveE} foes  ·  Lv${partyLevel}  ·  ${totalDmgDealt} dmg${lastStandTxt}`;
   ctx.font='10px Rajdhani,sans-serif';
   const hudW=ctx.measureText(hudTxt).width+16;
   ctx.fillStyle='rgba(6,6,16,0.75)';ctx.fillRect(2,2,hudW,34);
@@ -3728,7 +3824,7 @@ function render(ts){
   ctx.fillText(diffLabel,8,5);
   const dlw=ctx.measureText(diffLabel).width;
   ctx.fillStyle='rgba(200,200,220,0.35)';ctx.globalAlpha=1;
-  ctx.fillText(`  ·  Tick ${tickCount}  ·  ${timeStr}  ·  Enc ${campaignNode+1}/${campaignTotal}  ·  ${aliveE} foes  ·  Lv${partyLevel}  ·  ${totalDmgDealt} dmg${lastStandTxt}`,8+dlw,5);
+  ctx.fillText(`  ·  Tick ${tickCount}  ·  ${timeStr}  ·  ${encLabel()}  ·  ${aliveE} foes  ·  Lv${partyLevel}  ·  ${totalDmgDealt} dmg${lastStandTxt}`,8+dlw,5);
   // Party HP compact (top-left under HUD line)
   let phX=8,phY=19;
   const cIcons2=['⚔','🔥','🗡','✚'];
@@ -3803,13 +3899,13 @@ function render(ts){
     ctx.fillStyle='#c45a3c';ctx.fillText(`-${tt.val} dmg`,C.width/2,ttY);ctx.restore();
   }
 
+  if(!BOARD){
   // Minimap (top-right) — game panel with hex dots
   const mmS=4,mmW=82,mmH=74,mmX=C.width-mmW-8,mmY=10;
   ctx.fillStyle='rgba(6,6,16,0.85)';ctx.fillRect(mmX,mmY,mmW,mmH);
   ctx.strokeStyle='rgba(140,120,80,0.2)';ctx.lineWidth=0.5;ctx.strokeRect(mmX,mmY,mmW,mmH);
   const mmCx=mmX+mmW/2,mmCy=mmY+mmH/2-2;
-  for(let q=-GRID_R;q<=GRID_R;q++)for(let r=-GRID_R;r<=GRID_R;r++){
-    if(!inGrid(q,r))continue;
+  for(const{q,r}of boardHexes()){
     const mx=mmCx+(q+r*0.5)*mmS*1.8,my=mmCy+r*mmS*1.6;
     const te=terrainAt(q,r);
     ctx.fillStyle=te?({[T_WALL]:'#555',[T_HAZARD]:'#833',[T_COVER]:'#384',[T_LAVA]:'#a44'}[te.type]||'#444'):activeBiome.hexA;
@@ -3831,6 +3927,7 @@ function render(ts){
   ctx.fillStyle='#888';ctx.fillText('MAP',mmCx,mmY+mmH-10);
   ctx.globalAlpha=1;
 
+  }
   // boss encounter border glow + phase-dependent intensity
   const activeBoss=enemies.find(e=>e.isBoss&&e.hp>0);
   if(activeBoss&&running&&!gameOver){
@@ -4056,6 +4153,7 @@ function render(ts){
 
   ctx.restore();
   drawCanvasHud(ts);
+  if(BOARD)survivalDrawHud(ts);
 }
 
 document.getElementById('vol-sl').addEventListener('input',e=>{audio.setVolume(e.target.value/100);});
@@ -4255,7 +4353,8 @@ function _buildState(forId){
     won:gamePhase==='results'&&campaignNode>=campaignTotal-1&&enemies.every(e=>e.hp<=0),
     player:_serializePlayer(pp),
     pendingInput:pi===0?(pendingInput?true:false):(pendingInputs[pi]?true:false),
-    encounter:campaignNode+1,encounterTotal:campaignTotal,biome:activeBiome.name,
+    encounter:gameMode==='survival'?survivalWave():campaignNode+1,encounterTotal:gameMode==='survival'?null:campaignTotal,biome:activeBiome.name,
+    mode:gamePhase==='lobby'?selectedMode():gameMode,score:gameMode==='survival'?survivalScore():null,
     partyLevel,partyXP,xpToNext,
     enemyCount:enemies.filter(e=>e.hp>0).length,enemyTotal:enemies.length,
     inDanger:pp&&pp.hp>0?hNbrs(pp.q,pp.r).some(n=>enemies.find(e=>e.q===n.q&&e.r===n.r&&e.hp>0)):false,
