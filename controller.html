@@ -10,6 +10,13 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg-body);color:#eee;font-family:'Rajdhani','Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;height:100vh;overflow:hidden;user-select:none;touch-action:none;background-image:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(140,120,80,0.015) 2px,rgba(140,120,80,0.015) 3px)}
 .screen{display:none;flex-direction:column;align-items:center;width:100%;max-width:420px;flex:1}
+/* board view (computers): the game board on the left, this controller on the right */
+#ctrl-col{display:flex;flex-direction:column;align-items:center;width:100%;flex:1;min-height:0}
+body.board-mode{flex-direction:row;align-items:stretch}
+body.board-mode #ctrl-col{width:clamp(300px,34vw,390px);flex:0 0 clamp(300px,34vw,390px);height:100vh;overflow-y:auto;border-left:1px solid rgba(140,120,80,0.25)}
+#board-frame{flex:1;min-width:0;height:100vh;border:0;background:#0c0a08}
+#board-toggle{position:fixed;top:4px;right:6px;z-index:30;background:rgba(18,15,11,0.9);color:#b8943e;border:1px solid rgba(184,148,62,0.4);border-radius:4px;padding:3px 8px;font:700 11px Rajdhani,sans-serif;letter-spacing:1px;cursor:pointer;display:none}
+@media (min-width:700px){#board-toggle{display:block}}
 .screen.active{display:flex}
 #status-bar{font-size:10px;padding:3px 8px;text-align:center;width:100%;transition:background 0.3s;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid rgba(140,120,80,0.15)}
 .connected{color:#7ea879;background:rgba(126,168,121,0.04)}.disconnected{color:#c45a3c;background:rgba(196,90,60,0.06)}.connecting{color:#c9973e;background:rgba(201,151,62,0.06)}
@@ -261,6 +268,7 @@ function _onLinkStatus(st){
     // announce ourselves right away so the host adds us to the lobby
     _send({type:'ping',id:myId});
     sendLobbyUpdate();
+    boardSubscribe();
   }else if(st.state==='connecting'){
     js.textContent='Connecting…';_setBar('connecting','Connecting to '+st.code+'…');
   }else if(st.state==='reconnecting'){
@@ -508,17 +516,29 @@ const dpadEl=document.getElementById('dpad');
 
 // keyboard fallback
 const DIRS={KeyW:{dq:0,dr:-1},KeyS:{dq:0,dr:1},KeyA:{dq:-1,dr:0},KeyD:{dq:1,dr:0},KeyQ:{dq:-1,dr:1},KeyE:{dq:1,dr:-1}};
+// returns true when the key did something (so the caller can preventDefault)
+function ctrlKey(code){
+  // upgrade picks: 1 / 2 / 3
+  if(document.getElementById('upgrade-screen')?.classList.contains('active')){
+    const idx={Digit1:0,Digit2:1,Digit3:2,Numpad1:0,Numpad2:1,Numpad3:2}[code];
+    const c=idx!=null&&document.querySelectorAll('#upgrade-choices > *')[idx];
+    if(c){c.click();return true;}
+    return false;
+  }
+  if(!document.getElementById('game').classList.contains('active'))return false;
+  if(DIRS[code]){sendInput('move',DIRS[code].dq,DIRS[code].dr);return true;}
+  if(code==='Space'){sendInput('attack');return true;}
+  if(code==='KeyF'){sendInput('skill');return true;}
+  if(code==='KeyG'){sendInput('defend');return true;}
+  if(code==='Digit1'){sendInput('item');return true;}
+  return false;
+}
 document.addEventListener('keydown',e=>{
-  // don't hijack letters while typing a name/room code, or outside the game screen
+  // don't hijack letters while typing a name/room code
   const t=e.target;
   if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.isContentEditable))return;
-  if(!document.getElementById('game').classList.contains('active'))return;
   if(e.ctrlKey||e.metaKey||e.altKey)return;
-  if(DIRS[e.code]){sendInput('move',DIRS[e.code].dq,DIRS[e.code].dr);e.preventDefault();}
-  if(e.code==='Space'){sendInput('attack');e.preventDefault();}
-  if(e.code==='KeyF'){sendInput('skill');e.preventDefault();}
-  if(e.code==='KeyG'){sendInput('defend');e.preventDefault();}
-  if(e.code==='Digit1'){sendInput('item');e.preventDefault();}
+  if(ctrlKey(e.code))e.preventDefault();
 });
 
 // === Rejoin: game is running and this controller has no hero ===
@@ -545,6 +565,7 @@ function showRejoin(d){
 // === Receive state ===
 let _prevPhase=null;
 function _handleState(d){
+  if(d.type==='board'){boardForward(d);return;}
   if(d.type==='kicked'){_onKicked();return;}
   if(d.type!=='state')return;
   if(d.forId&&d.forId!==myId)return;
@@ -773,6 +794,49 @@ else{
     }
   }catch(e){}
 }
+
+// === Board view (computers): show the host's board next to the controls ===
+const BOARD_PREF_KEY='pq-board-view';
+let boardOn=false,boardFrame=null,boardReady=false;
+function boardWanted(){
+  try{const v=localStorage.getItem(BOARD_PREF_KEY);if(v==='1')return true;if(v==='0')return false;}catch(e){}
+  return window.matchMedia('(min-width: 900px) and (pointer: fine)').matches; // default: on for computers, off for phones
+}
+function boardSubscribe(){if(_link&&_link.connected)_send({type:'board_sub',on:boardOn,id:myId});}
+function boardForward(d){if(boardOn&&boardFrame&&boardReady)boardFrame.contentWindow.postMessage(d,location.origin);}
+function setBoard(on,remember){
+  boardOn=!!on;
+  if(remember){try{localStorage.setItem(BOARD_PREF_KEY,boardOn?'1':'0');}catch(e){}}
+  let col=document.getElementById('ctrl-col');
+  if(!col){ // wrap the existing controller UI once so it can become the right-hand column
+    col=document.createElement('div');col.id='ctrl-col';
+    [...document.body.childNodes].filter(n=>n.nodeName!=='SCRIPT'&&n.id!=='board-toggle').forEach(n=>col.appendChild(n));
+    document.body.insertBefore(col,document.body.firstChild);
+  }
+  if(boardOn&&!boardFrame){
+    boardFrame=document.createElement('iframe');boardFrame.id='board-frame';boardFrame.title='Game board';
+    boardReady=false;boardFrame.onload=()=>{boardReady=true;if(_link&&_link.connected)_send({type:'board_sub',on:true,fresh:true,id:myId});}; // ask for the map again
+    boardFrame.src='playtest.html?viewer=1';
+    document.body.insertBefore(boardFrame,col);
+  }
+  if(!boardOn&&boardFrame){boardFrame.remove();boardFrame=null;boardReady=false;}
+  document.body.classList.toggle('board-mode',boardOn);
+  document.getElementById('board-toggle').textContent=boardOn?'🗺 BOARD: ON':'🗺 BOARD: OFF';
+  boardSubscribe();
+}
+(function(){
+  const b=document.createElement('button');b.id='board-toggle';
+  b.onclick=()=>{setBoard(!boardOn,true);b.blur();};
+  document.body.appendChild(b);
+  setBoard(boardWanted(),false);
+})();
+// keys pressed while the board has focus are forwarded here
+window.addEventListener('message',ev=>{
+  if(ev.origin!==location.origin||!ev.data||ev.data.pqKey==null)return;
+  if(boardFrame&&ev.source===boardFrame.contentWindow)ctrlKey(ev.data.pqKey);
+});
+// keep the subscription alive (the host forgets board viewers after 15s of silence)
+setInterval(()=>{if(boardOn)boardSubscribe();},5000);
 
 // heartbeat: host replies to each ping with fresh state
 setInterval(()=>{if(_link&&_link.connected)_send({type:'ping',id:myId});},800);

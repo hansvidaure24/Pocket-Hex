@@ -17,7 +17,7 @@ import { DurableObject } from 'cloudflare:workers';
 const CODE_RE = /^\/room\/([A-Z0-9]{4,8})$/i;
 const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const MAX_CLIENTS = 12;
-const MAX_MSG = 16 * 1024;
+const MAX_MSG = 64 * 1024; // board-view snapshots for remote screens can reach ~20 KB
 
 export default {
   async fetch(request, env) {

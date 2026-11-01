@@ -82,7 +82,8 @@ canvas{display:block;cursor:crosshair}
 <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="net-config.js?v=3"></script>
 <script src="net.js?v=3"></script>
-<script src="survival.js?v=2"></script>
+<script src="survival.js?v=3"></script>
+<script src="remote-view.js?v=1"></script>
 </head>
 <body>
 <!-- MENU BG CANVAS -->
@@ -3557,7 +3558,7 @@ function render(ts){
   C.width=window.innerWidth;
   C.height=window.innerHeight;
   if(BOARD)HEX=survivalHexSize(C.width,C.height);
-  else{HEX=Math.min(C.width,C.height)/(GRID_R*2+2)/1.5;HEX=Math.max(28,Math.min(60,HEX));}
+  else{HEX=Math.min(C.width,C.height)/(GRID_R*2+2)/1.5;HEX=Math.max(window.PQ_VIEWER?10:28,Math.min(60,HEX));}
 
   ctx.save();
   ctx.translate(screenShake.x,screenShake.y);
@@ -4173,8 +4174,8 @@ document.getElementById('player-sel').addEventListener('change',updateLobbyDispl
 document.getElementById('host-name').addEventListener('input',updateHostLobby);
 updateLoadoutSel();
 // auto-init lobby on load (menu is now index.html)
-setPhase('lobby');
-goToLobby();
+if(window.PQ_VIEWER)RV.startViewer();
+else{setPhase('lobby');goToLobby();RV.installHost();}
 requestAnimationFrame(render);
 
 function drawQR(code){
@@ -4206,8 +4207,11 @@ function _updateRoomUI(st){
     net.style.color=online?'#7ea879':'#c9973e';
   }
 }
-const _net=PQNet.createHost({onMessage:d=>_handleMsg(d),onStatus:_updateRoomUI});
+// watch-only pages (remote board view) never host a room
+const _net=window.PQ_VIEWER?{send(){return false;},broadcast(){},clientIds(){return[];},newCode(){},close(){},status:{}}
+  :PQNet.createHost({onMessage:d=>_handleMsg(d),onStatus:_updateRoomUI});
 function _handleMsg(d){
+  if(d.type==='board_sub'){if(!_kicked.has(d.id))RV.onSub(d.id,d.on!==false,!!d.fresh);return;} // a computer wants the board view
   if(d.id&&_kicked.has(d.id)){if(d.type==='ping'||d.type==='lobby_join')_net.send(d.id,{type:'kicked'});return;}
   if(d.id)_ctrlSeen[d.id]=Date.now();
   if(d.type==='input'&&running&&!gameOver&&!paused){

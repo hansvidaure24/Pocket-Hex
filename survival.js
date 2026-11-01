@@ -70,6 +70,10 @@ function makeBoard(W, H) {
   if (rows % 2 === 0) rows++;
   const RH = (rows - 1) / 2;
   const CW = Math.max(4, Math.floor(Math.round(SURV.targetCells / rows) / 2));
+  return makeBoardDims(CW, RH);
+}
+// Build the board from its half-width/half-height (remote viewers get these from the host).
+function makeBoardDims(CW, RH) {
   const cells = new Set(), list = [];
   for (let r = -RH; r <= RH; r++) {
     for (let q = Math.ceil(-CW - r / 2); q <= Math.floor(CW - r / 2); q++) {
@@ -100,7 +104,7 @@ function survivalHexSize(W, H) {
   if (!BOARD) return 34;
   const byW = (W - 24) / (SQRT3 * (2 * BOARD.CW + 1.5));
   const byH = (H - 90) / (1.5 * (2 * BOARD.RH) + 2);
-  return Math.max(14, Math.min(64, Math.min(byW, byH)));
+  return Math.max(window.PQ_VIEWER ? 6 : 14, Math.min(64, Math.min(byW, byH))); // remote boards can be small
 }
 
 function survivalTerrain() {
@@ -470,6 +474,7 @@ function survivalEnemyDmgBonus() { return S ? Math.floor((S.wave - 1) / SURV.dmg
 function survivalWave() { return S ? S.wave : 0; }
 function survivalScore() {
   if (!S) return 0;
+  if (S._score != null) return S._score; // remote viewer: the host's number
   const P = SURV.points;
   const raw = S.cleared * P.wave + S.kills * P.kill + S.summonKills * P.summonKill + S.bossKills * P.boss;
   return Math.round(raw * (SURV.scoreMult[difficulty] || 1));
@@ -559,7 +564,7 @@ function survivalResultsHeader() {
 // Auto-pause if every phone player has dropped and nobody is playing on the host,
 // so an unattended run doesn't grind on with bots forever.
 setInterval(() => {
-  if (typeof gameMode === 'undefined' || gameMode !== 'survival' || !S || !running || gameOver) return;
+  if (window.PQ_VIEWER || typeof gameMode === 'undefined' || gameMode !== 'survival' || !S || !running || gameOver) return;
   const humanLeft = hostPlaying || players.some((p) => !p.isBot);
   const hadHumans = players.some((p) => p._dc);
   const ov = document.getElementById('pause-overlay');
