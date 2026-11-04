@@ -14,9 +14,10 @@
     { relayUrl: '', iceServers: [{ urls: 'stun:stun.l.google.com:19302' }], turnCredentialsUrl: '' },
     window.PQ_CONFIG || {}
   );
-  // Dev/testing override, e.g. in the console:
-  //   localStorage['pq-dev'] = JSON.stringify({relayUrl:'ws://localhost:8787', transports:['relay']})
-  try { Object.assign(CFG, JSON.parse(localStorage.getItem('pq-dev') || '{}')); } catch (e) {}
+  // Dev override — only on localhost
+  if(location.hostname==='localhost'||location.hostname==='127.0.0.1'){
+    try { Object.assign(CFG, JSON.parse(localStorage.getItem('pq-dev') || '{}')); } catch (e) {}
+  }
   const transportOn = (k) => !Array.isArray(CFG.transports) || CFG.transports.includes(k);
   const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
   const PEER_PREFIX = 'pq-';

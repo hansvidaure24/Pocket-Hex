@@ -2,29 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Pocket Quest</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap');
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#0f0d0a;color:#eee;font-family:'Rajdhani','Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;overflow:hidden;user-select:none;touch-action:none}
-canvas{position:fixed;inset:0;z-index:0;pointer-events:none}
-.content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:20px;padding:40px;text-align:center}
-.title{font-size:68px;font-weight:700;color:#c45a3c;letter-spacing:6px;line-height:1;text-transform:uppercase;text-shadow:0 2px 0 rgba(0,0,0,0.6)}
-.sub{color:#8a7e6e;font-size:14px;letter-spacing:3px;text-transform:uppercase;margin-top:-4px}
-.divider{width:120px;height:1px;background:linear-gradient(90deg,transparent,rgba(196,90,60,0.4),transparent);margin:4px 0}
-.btn{background:#2a1e12;color:#eee;border:1px solid rgba(140,120,80,0.4);padding:16px 48px;border-radius:4px;cursor:pointer;font-family:inherit;font-weight:700;font-size:18px;text-transform:uppercase;letter-spacing:2px;transition:all 0.12s;text-decoration:none;display:block;min-width:260px;text-align:center}
-.btn:hover{background:#3a2a1a;transform:translateY(-1px)}
-.btn:active{transform:translateY(1px)}
-.btn-host{background:#a3472e;border-color:rgba(196,90,60,0.5);animation:pulse 2.5s ease-in-out infinite}
-.btn-host:hover{background:#c45a3c}
-.btn-join{background:#2a3a28;border-color:rgba(126,168,121,0.4)}
-.btn-join:hover{background:#3a5a35}
-.hint{color:#444;font-size:11px;letter-spacing:1px;text-transform:uppercase;max-width:320px;line-height:1.6}
-.ver{color:#333;font-size:9px;letter-spacing:1px;margin-top:16px}
-@keyframes pulse{0%,100%{box-shadow:0 2px 12px rgba(196,90,60,0.25)}50%{box-shadow:0 4px 24px rgba(196,90,60,0.45)}}
-@media(max-width:767px){.title{font-size:48px;letter-spacing:4px}.btn{padding:14px 36px;font-size:16px;min-width:220px}}
-</style>
+<link rel="stylesheet" href="css/index.css">
 </head>
 <body>
 <canvas id="bg"></canvas>
@@ -37,57 +17,126 @@ canvas{position:fixed;inset:0;z-index:0;pointer-events:none}
   <div class="ver">v1.0 · 2–4 players · 10–15 min</div>
 </div>
 <script>
-const isMobile=/Mobi|Android|iPhone|iPad/.test(navigator.userAgent)||(window.innerWidth<768&&'ontouchstart' in window);
-const btns=document.getElementById('buttons');
-const hint=document.getElementById('hint');
+const isMobile = /Mobi|Android|iPhone|iPad/.test(navigator.userAgent)
+  || (window.innerWidth < 768 && 'ontouchstart' in window);
+const btns = document.getElementById('buttons');
+const hint = document.getElementById('hint');
 
-if(isMobile){
-  btns.innerHTML='<a class="btn btn-join" href="controller.html">Join Game</a>';
-  hint.textContent='Enter the room code shown on the host screen to join.';
+if (isMobile) {
+  btns.innerHTML = '<a class="btn btn-join" href="controller.html">Join Game</a>'
+    + '<div style="height:0.625rem"></div>'
+    + '<a class="btn btn-tutorial" href="tutorial.html">Tutorial</a>';
+  hint.textContent = 'Enter the room code shown on the host screen to join.';
 } else {
-  btns.innerHTML='<a class="btn btn-host" href="playtest.html">Host Game</a><div style="height:10px"></div><a class="btn btn-join" href="controller.html">Join Game</a>';
-  hint.textContent='Host runs the shared screen. Join lets you play from this browser as a controller.';
+  btns.innerHTML = '<a class="btn btn-host" href="playtest.html">Host Game</a>'
+    + '<div style="height:0.625rem"></div>'
+    + '<a class="btn btn-join" href="controller.html">Join Game</a>'
+    + '<div style="height:0.625rem"></div>'
+    + '<a class="btn btn-tutorial" href="tutorial.html">Tutorial</a>';
+  hint.textContent = 'Host runs the shared screen. Join lets you play from this browser as a controller.';
 }
 
-// bg particles — same style as playtest menu
-const c=document.getElementById('bg');const ctx=c.getContext('2d');
-const hexes=[];
-for(let q=-8;q<=8;q++)for(let r=-8;r<=8;r++){if(Math.abs(q+r)>8)continue;hexes.push({q,r});}
-function resize(){c.width=window.innerWidth;c.height=window.innerHeight;}
-window.addEventListener('resize',resize);resize();
+const c = document.getElementById('bg');
+const ctx = c.getContext('2d');
+const hexes = [];
 
-const parts=[];
-function render(t){
+for (let q = -8; q <= 8; q++) {
+  for (let r = -8; r <= 8; r++) {
+    if (Math.abs(q + r) > 8) continue;
+    hexes.push({
+      q,
+      r,
+      phase: Math.random() * 6.28,
+      speed: 0.0003 + Math.random() * 0.0004
+    });
+  }
+}
+
+function resize() {
+  c.width = window.innerWidth;
+  c.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const parts = [];
+
+function render(t) {
   requestAnimationFrame(render);
-  ctx.clearRect(0,0,c.width,c.height);
-  const bg=ctx.createRadialGradient(c.width/2,c.height*0.4,0,c.width/2,c.height*0.4,c.width*0.8);
-  bg.addColorStop(0,'#0e0e20');bg.addColorStop(1,'#060610');
-  ctx.fillStyle=bg;ctx.fillRect(0,0,c.width,c.height);
-  // hex grid
-  const sz=28,s3=Math.sqrt(3),cx=c.width/2,cy=c.height/2;
-  ctx.globalAlpha=0.04+0.015*Math.sin(t*0.0005);
-  ctx.strokeStyle='#6644aa';ctx.lineWidth=0.5;
-  hexes.forEach(h=>{
-    const x=cx+sz*(s3*h.q+s3/2*h.r);
-    const y=cy+sz*1.5*h.r;
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  const bg = ctx.createRadialGradient(
+    c.width / 2, c.height * 0.4, 0,
+    c.width / 2, c.height * 0.4, c.width * 0.8
+  );
+  bg.addColorStop(0, '#0e0e20');
+  bg.addColorStop(1, '#060610');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const sz = 28;
+  const s3 = Math.sqrt(3);
+  const cx = c.width / 2;
+  const cy = c.height / 2;
+  const baseAlpha = 0.04 + 0.015 * Math.sin(t * 0.0005);
+
+  ctx.strokeStyle = '#6644aa';
+  ctx.lineWidth = 0.5;
+
+  hexes.forEach(h => {
+    const x = cx + sz * (s3 * h.q + s3 / 2 * h.r);
+    const y = cy + sz * 1.5 * h.r;
+    const drift = prefersReduced ? 0 : 0.015 * Math.sin(t * h.speed + h.phase);
+    ctx.globalAlpha = baseAlpha + drift;
     ctx.beginPath();
-    for(let i=0;i<6;i++){const a=Math.PI/3*i-Math.PI/6;ctx.lineTo(x+sz*Math.cos(a),y+sz*Math.sin(a));}
-    ctx.closePath();ctx.stroke();
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 3 * i - Math.PI / 6;
+      ctx.lineTo(x + sz * Math.cos(a), y + sz * Math.sin(a));
+    }
+    ctx.closePath();
+    ctx.stroke();
   });
-  ctx.globalAlpha=1;
-  // floating motes
-  while(parts.length<12)parts.push({x:Math.random(),y:Math.random(),s:0.3+Math.random()*0.5,d:Math.random()*6.28});
-  parts.forEach(m=>{
-    m.y-=0.00004*m.s;m.x+=Math.sin(t*0.0003+m.d)*0.00008;
-    if(m.y<-0.02){m.y=1.02;m.x=Math.random();}
-    ctx.globalAlpha=0.03+0.02*Math.sin(t*0.001+m.d);
-    ctx.fillStyle='#6644aa';ctx.beginPath();ctx.arc(m.x*c.width,m.y*c.height,m.s*2,0,Math.PI*2);ctx.fill();
-  });
-  ctx.globalAlpha=1;
-  // scanlines
-  if(!window._sp){const sc=document.createElement('canvas');sc.width=4;sc.height=4;const sx=sc.getContext('2d');sx.fillStyle='rgba(0,0,0,0.035)';sx.fillRect(0,0,4,1);window._sp=ctx.createPattern(sc,'repeat');}
-  ctx.fillStyle=window._sp;ctx.fillRect(0,0,c.width,c.height);
+  ctx.globalAlpha = 1;
+
+  if (!prefersReduced) {
+    while (parts.length < 12) {
+      parts.push({
+        x: Math.random(),
+        y: Math.random(),
+        s: 0.3 + Math.random() * 0.5,
+        d: Math.random() * 6.28
+      });
+    }
+    parts.forEach(m => {
+      m.y -= 0.00004 * m.s;
+      m.x += Math.sin(t * 0.0003 + m.d) * 0.00008;
+      if (m.y < -0.02) {
+        m.y = 1.02;
+        m.x = Math.random();
+      }
+      ctx.globalAlpha = 0.03 + 0.02 * Math.sin(t * 0.001 + m.d);
+      ctx.fillStyle = '#6644aa';
+      ctx.beginPath();
+      ctx.arc(m.x * c.width, m.y * c.height, m.s * 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  if (!window._sp) {
+    const sc = document.createElement('canvas');
+    sc.width = 4;
+    sc.height = 4;
+    const sx = sc.getContext('2d');
+    sx.fillStyle = 'rgba(0, 0, 0, 0.035)';
+    sx.fillRect(0, 0, 4, 1);
+    window._sp = ctx.createPattern(sc, 'repeat');
+  }
+  ctx.fillStyle = window._sp;
+  ctx.fillRect(0, 0, c.width, c.height);
 }
+
 requestAnimationFrame(render);
 </script>
 </body>

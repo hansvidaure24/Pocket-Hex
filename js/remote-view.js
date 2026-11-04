@@ -102,7 +102,9 @@ const RV = {
       lv: partyLevel, xp: partyXP, xn: xpToNext,
       bd: BOARD ? { cw: BOARD.CW, rh: BOARD.RH } : { gr: GRID_R },
       cmp: surv ? null : { n: campaignNode, t: Math.min(campaignTotal, 20), types: CAMPAIGN_NODES.slice(0, 20).map((n) => n.type) },
-      sv: surv ? { w: S.wave, ph: S.phase, pt: S.phaseTick, sc: survivalScore(), b: S.best, rl: S.relics.map((r) => [r.icon, r.name]), tel: S.telegraph.map((t) => [t.q, t.r, t.boss ? 1 : 0]) } : null,
+      sv: surv ? { w: S.wave, ph: S.phase, pt: S.phaseTick, sc: survivalScore(), b: S.best, nb: S.newBest ? 1 : 0, cl: S.cleared, kl: S.kills + S.summonKills, bk: S.bossKills, st: S.startTime, rl: S.relics.map((r) => [r.icon, r.name]), tel: S.telegraph.map((t) => [t.q, t.r, t.boss ? 1 : 0]) } : null,
+      won: gamePhase === 'results' && gameMode !== 'survival' && campaignNode >= campaignTotal - 1 && enemies.every((e) => e.hp <= 0) ? 1 : 0,
+      bn: activeBiome ? activeBiome.name : '',
       pl: players.map(RV.entOut),
       en: enemies.filter((e) => e.hp > 0 || e._deadAt == null || tickCount - e._deadAt < 2).map(RV.entOut),
       kf: killFeed.map((k) => ({ killer: k.killer, victim: k.victim, kColor: k.kColor, vColor: k.vColor, boss: k.boss, t: k.t })),
@@ -152,7 +154,7 @@ const RV = {
     Object.keys(audio).forEach((k) => { if (typeof audio[k] !== 'function') return; const o = audio[k]; audio[k] = function (...a) { if (RV.muted) return; return o.apply(this, a); }; });
 
     RV.banner = document.createElement('div');
-    RV.banner.style.cssText = 'position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:60;background:rgba(12,10,8,0.88);border:1px solid rgba(184,148,62,0.4);border-radius:8px;padding:14px 22px;color:#e8c878;font:700 18px Rajdhani,sans-serif;letter-spacing:1px;text-align:center;display:none;pointer-events:none';
+    RV.banner.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;background:rgba(12,10,8,0.92);border:1px solid rgba(184,148,62,0.4);border-radius:8px;padding:14px 22px;color:#e8c878;font:700 18px Rajdhani,sans-serif;letter-spacing:1px;text-align:center;display:none;pointer-events:none;max-width:min(680px,92vw);max-height:85vh;overflow-y:auto';
     document.body.appendChild(RV.banner);
     const snd = document.createElement('button');
     snd.textContent = '🔇 Sound off';
@@ -176,10 +178,10 @@ const RV = {
     }, 1000);
   },
 
-  setBanner(text) {
+  setBanner(text, html) {
     if (!RV.banner) return;
-    RV.banner.textContent = text || '';
-    RV.banner.style.display = text ? 'block' : 'none';
+    if (html) { RV.banner.innerHTML = html; RV.banner.style.display = 'block'; RV.banner.style.pointerEvents = 'auto'; }
+    else { RV.banner.textContent = text || ''; RV.banner.style.display = text ? 'block' : 'none'; RV.banner.style.pointerEvents = 'none'; }
   },
 
   boardFor(cw, rh) {
@@ -221,7 +223,7 @@ const RV = {
     if (d.cmp) { campaignNode = d.cmp.n; campaignTotal = d.cmp.t; CAMPAIGN_NODES = d.cmp.types.map((type) => ({ type, label: type })); }
     if (d.sv) {
       S = S || {};
-      Object.assign(S, { wave: d.sv.w, phase: d.sv.ph, phaseTick: d.sv.pt, _score: d.sv.sc, best: d.sv.b, cleared: 0,
+      Object.assign(S, { wave: d.sv.w, phase: d.sv.ph, phaseTick: d.sv.pt, _score: d.sv.sc, best: d.sv.b, nb: d.sv.nb, cl: d.sv.cl, kl: d.sv.kl, bk: d.sv.bk, st: d.sv.st,
         relics: d.sv.rl.map(([icon, name]) => ({ icon, name })), telegraph: d.sv.tel.map(([q, r, b]) => ({ q, r, boss: !!b })) });
     }
     // units: your own hero first, so every "P1 = local player" highlight in the drawing code is yours
@@ -247,10 +249,10 @@ const RV = {
     // banner
     let b = '';
     if (d.ph === 'lobby' || d.ph === 'menu') b = 'Waiting for the host to start…';
-    else if (d.ph === 'results') b = 'Game over — results are on your controller';
+    else if (d.ph === 'results') { RV.setBanner(null, RV.buildScoreboard(d)); b = null; }
     else if (paused) b = 'Paused by the host';
     else if (!d.run && gameMode !== 'survival') b = 'Between encounters…';
-    RV.setBanner(b);
+    if (b !== null) RV.setBanner(b);
     if (d.ph !== RV.lastPh) { RV.lastPh = d.ph; if (d.ph === 'game') { damageNumbers = []; aoeEffects = []; trailEffects = []; deathEffects = []; projectiles = []; } }
   },
 
@@ -268,5 +270,74 @@ const RV = {
     else if (t === 'm') showMsg(ev[1], ev[2]);
     else if (t === 'c') combatLog(ev[1], ev[2]);
     else if (t === 'u') { const fn = audio[ev[1]]; if (typeof fn === 'function') fn.apply(audio, ev.slice(2)); }
+  },
+
+  buildScoreboard(d) {
+    const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const diffNames = ['Easy', 'Normal', 'Hard'];
+    const cIcons = ['⚔', '🔥', '🗡', '✚'];
+    const surv = gameMode === 'survival' && S;
+    const won = !!d.won;
+    let h = '';
+
+    // header
+    if (surv) {
+      const sc = S._score || 0;
+      const secs = S.st ? Math.floor((Date.now() - S.st) / 1000) : 0;
+      const time = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+      h += `<div style="font-size:24px;font-weight:900;color:#c45a3c;letter-spacing:2px;text-transform:uppercase;text-shadow:0 0 20px rgba(196,90,60,0.3)">OVERRUN AT WAVE ${S.wave}</div>`;
+      h += `<div style="font-size:10px;color:#8a7e6e;letter-spacing:1px;text-transform:uppercase;margin:4px 0">Survival · ${esc(d.bn)} · ${diffNames[difficulty] || 'Normal'} · ${players.length}p</div>`;
+      h += `<div style="font-size:11px;color:#888;margin-bottom:6px">${time} · ${S.cl || 0} waves · ${S.kl || 0} kills · ${S.bk || 0} boss${(S.bk || 0) === 1 ? '' : 'es'} · Lv${partyLevel}</div>`;
+      h += `<div style="font-size:44px;font-weight:900;color:#e8c878;text-shadow:0 0 30px rgba(232,200,120,0.3);letter-spacing:2px;line-height:1;margin:4px 0">${sc}</div>`;
+      h += `<div style="font-size:9px;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">${S.nb ? '<span style="color:#7ea879">★ New best!</span>' : 'Best ' + (S.best || 0)}</div>`;
+    } else {
+      h += `<div style="font-size:24px;font-weight:900;color:${won ? '#7ea879' : '#c45a3c'};letter-spacing:2px;text-transform:uppercase">${won ? 'VICTORY' : 'CAMPAIGN FAILED'}</div>`;
+      h += `<div style="font-size:10px;color:#8a7e6e;letter-spacing:1px;text-transform:uppercase;margin:4px 0">${esc(d.bn)} · ${diffNames[difficulty] || 'Normal'} · ${players.length}p · Lv${partyLevel}</div>`;
+    }
+
+    // titles
+    const st = stats || {};
+    let maxDmg = 0, maxDmgN = '', maxKills = 0, maxKillsN = '', maxHeals = 0, maxHealsN = '';
+    for (const [name, s] of Object.entries(st)) {
+      if (s.dmgDealt > maxDmg) { maxDmg = s.dmgDealt; maxDmgN = name; }
+      if (s.kills > maxKills) { maxKills = s.kills; maxKillsN = name; }
+      if (s.heals > maxHeals) { maxHeals = s.heals; maxHealsN = name; }
+    }
+    const titles = [];
+    if (maxDmgN) titles.push(['🏆 MVP', maxDmgN, maxDmg + ' dmg']);
+    if (maxKillsN && maxKills > 0) titles.push(['⚔ Executioner', maxKillsN, maxKills + ' kills']);
+    if (maxHealsN && maxHeals > 0) titles.push(['💚 Medic', maxHealsN, maxHeals + ' HP']);
+    if (titles.length) {
+      h += '<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:8px 0">';
+      titles.forEach(([title, who, detail]) => h += `<div style="background:linear-gradient(180deg,#1e1a15,#16130f);border:1px solid rgba(140,120,80,0.3);border-radius:5px;padding:6px 12px;min-width:100px"><div style="color:#b8943e;font-size:10px;letter-spacing:1px;text-transform:uppercase">${title}</div><div style="color:#eee;font-size:12px;font-weight:700">${esc(who)}</div><div style="color:#8a7e6e;font-size:9px">${detail}</div></div>`);
+      h += '</div>';
+    }
+
+    // per-player cards
+    h += '<div style="width:100%;height:1px;background:linear-gradient(90deg,transparent,rgba(140,120,80,0.3),transparent);margin:8px 0"></div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;width:100%">';
+    for (const p of players) {
+      const s = st[p.name] || { dmgDealt: 0, kills: 0, heals: 0, dmgTaken: 0, moved: 0 };
+      const isMVP = p.name === maxDmgN;
+      const upIcons = p.upgrades && p.upgrades.length ? p.upgrades.join(' ') : '';
+      h += `<div style="background:linear-gradient(180deg,rgba(20,18,46,0.9),rgba(12,10,26,0.9));border:1px solid ${isMVP ? 'rgba(184,148,62,0.35)' : 'rgba(140,120,80,0.2)'};border-radius:5px;padding:8px;text-align:left${isMVP ? ';box-shadow:0 0 10px rgba(184,148,62,0.08)' : ''}">`;
+      h += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span style="color:${p.color};font-weight:700;font-size:14px">${esc(p.name)}</span>${isMVP ? '<span style="font-size:8px;color:#b8943e;letter-spacing:1px">MVP</span>' : ''}</div>`;
+      h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px 6px;font-size:10px;font-weight:500">`;
+      h += `<div style="color:#888">⚔ <span style="color:#ccc">${s.dmgDealt}</span></div>`;
+      h += `<div style="color:#888">💀 <span style="color:#ccc">${s.kills}</span></div>`;
+      h += `<div style="color:#888">💚 <span style="color:#ccc">${s.heals}</span></div>`;
+      h += `<div style="color:#888">🩸 <span style="color:#ccc">${s.dmgTaken}</span></div>`;
+      h += '</div>';
+      if (upIcons) h += `<div style="margin-top:3px;font-size:9px;color:#555">${cIcons[p.classIdx] || ''} ${upIcons}</div>`;
+      h += '</div>';
+    }
+    h += '</div>';
+
+    // relics
+    if (surv && S.relics && S.relics.length) {
+      h += `<div style="margin-top:6px;font-size:12px;color:#888">${S.relics.map((r) => r.icon + ' ' + esc(r.name)).join(' · ')}</div>`;
+    }
+
+    return h;
   },
 };

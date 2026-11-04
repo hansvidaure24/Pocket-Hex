@@ -136,62 +136,53 @@ Dead players become ghosts: they can still move on the grid but can't attack or 
 
 ## Tech Plan
 
-**Engine:** Unity 2D
+**Engine:** Vanilla JavaScript + HTML5 Canvas. No frameworks, no build step.
 
-**Shared screen (Unity app):**
-- Scenes: Lobby, Map, Combat, Results
-- Hex grid rendering (tilemap or procedural)
-- Tick engine: fixed 1.5s loop (configurable), collects inputs, resolves state, broadcasts, animates
+**Shared screen (playtest.html):**
+- Lobby, Campaign, Combat, Survival, Results — all in one page
+- Hex grid rendered on Canvas
+- Tick engine: configurable loop (1.0–2.0s), collects inputs, resolves state, broadcasts, animates
 - Enemy AI (one behavior function per enemy type)
-- Camera: auto-zoom to fit all living units + 1 hex padding. Track centroid of all units. Smooth lerp between ticks.
-- Hosts a WebSocket server (or connects to a lightweight relay server for cross-network play)
+- Camera: auto-zoom to fit all living units + padding, smooth lerp between ticks
 
-**Phone controller (web app):**
-- Simple HTML/JS page served by the host or a small web server
-- Players join via room code or QR code in phone browser — no app install
-- Sends inputs via WebSocket each tick, receives game state updates
-- Screens: Join, Class Select, Loadout, Game (swipe/tap controls), Results
-- Must feel responsive — show input locally immediately, correct on next tick if needed
-- Cooldown display: skill/item buttons show a tick countdown number when on cooldown. Grey out + number. No ambiguity.
+**Phone controller (controller.html):**
+- Lightweight HTML/JS page, no app install
+- Players join via room code or QR code in phone browser
+- Swipe-to-move with tuned hex dead zones, tap-to-attack, skill/item buttons
+- Shows HP, cooldowns, nearby threats — optimized for small screens
+- Haptic feedback on actions
 
-**Data model:**
-- ScriptableObjects for: Classes, Loadouts, Enemies, Events, Campaigns, Hex Terrain
-- Game state: hex grid, player positions/HP/facing/cooldowns, enemy positions/HP/state, current tick number
-- All game state lives server-side (Unity app). Phone is a thin input/display client. Reconnect = rejoin same room code, state is preserved.
-
-**Networking:**
-- Same-network: Unity WebSocket server directly
-- Cross-network: lightweight relay (Node.js or similar) on a cheap VPS
-- One message per player per tick (direction + action). Tiny payload.
-- Missed input = stand still. No need for complex disconnect handling — missing ticks is fine, reconnect and keep going.
+**Networking (net.js):**
+- Three transports tried in order: BroadcastChannel (same browser), WebSocket relay (Cloudflare Worker + Durable Objects), WebRTC (PeerJS)
+- One message per player per tick. Tiny payload.
+- Auto-reconnect preserves player slot across drops
+- Missed input = stand still. No complex disconnect handling needed.
 
 ---
 
-## MVP Scope
+## Current scope
 
-**In v1:**
-- 4 classes with loadouts
-- 6 enemy types
-- 1 boss
-- 4-zone hex campaign with randomized encounters
+**Shipped:**
+- 4 classes with 2 loadouts each
+- 11 enemy types, 9 bosses, elite traits
+- Campaign mode (4 encounter zones, events, boss fight)
+- Survival mode (endless waves, per-wave upgrades, relics)
 - Tick-based simultaneous movement on phones
-- Swipe-to-move, tap-to-attack phone controls
-- End-of-run stats screen
-- Same-network WebSocket play
-- Basic 2D hex art with juice (screen shake, damage numbers, hit flash)
-- 1 battle track, 1 boss track, 5 sound effects
+- Swipe-to-move, tap-to-attack phone controls with haptic feedback
+- End-of-run stats screen with titles
+- Cross-network play via Cloudflare Worker relay + WebRTC fallback
+- Interactive tutorial
+- SVG art, screen shake, damage numbers, hit flash
+- GitHub Pages deployment via GitHub Actions
 
-**Explicitly cut (add later only if core loop is fun):**
-- Cross-network relay server
-- More than 1 boss
+**Not planned:**
 - Persistent progression / unlocks
 - Skill trees
 - Loot drops mid-combat
 - More than 4 classes
 - Spectator mode
-- Fog of war (only see near your character)
-- Terrain variety beyond walls/hazards/cover
-- Campaign map exploration (v1: auto-advance between zones)
+- Fog of war
+- Matchmaking / accounts
 
 ---
 

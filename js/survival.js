@@ -95,7 +95,7 @@ function makeBoardDims(CW, RH) {
   const nbr = list.map((h) => hNbrs(h.q, h.r).map((n) => index.get(n.q + ',' + n.r)).filter((i) => i !== undefined));
   return {
     cells, list, lane, sides, index, nbr, RH, CW,
-    occupied(q, r, ex) { return !!entities.find((e) => e.q === q && e.r === r && e !== ex && (e.hp > 0 || e.ghost)); },
+    occupied(q, r, ex) { return !!_occupied(q, r, ex); },
   };
 }
 
@@ -270,12 +270,16 @@ function survivalBuildRoster() {
 
 function survivalStartWave(n) {
   survivalClosePicks();
-  S.wave = n; S.phase = 'spawn'; S.phaseTick = 0; S.telegraph = [];
+  S.wave = n; S.phase = 'spawn'; S.phaseTick = 0; S.telegraph = []; S.bounty = null;
   const numP = players.length;
   S.budget = Math.round(SURV.budget(n) * SURV.partyFactor(numP) * (SURV.diffMult[difficulty] || 1));
   S.bossPending = n % SURV.bossEvery === 0;
-  if (S.bossPending) S.budget = Math.round(S.budget * 0.6); // the boss eats part of the budget
-  showWaveAnnounce(S.bossPending ? 'BOSS WAVE ' + n : 'WAVE ' + n, S.bossPending ? 'something big is coming' : 'they come from the edges', 1800);
+  // wave variety: bounty waves every 3rd non-boss wave from wave 4
+  S.waveType = (!S.bossPending && n >= 4 && n % 3 === 1) ? 'bounty' : 'normal';
+  if (S.bossPending) S.budget = Math.round(S.budget * 0.6);
+  const title = S.bossPending ? 'BOSS WAVE ' + n : S.waveType === 'bounty' ? 'BOUNTY WAVE ' + n : 'WAVE ' + n;
+  const sub = S.bossPending ? 'something big is coming' : S.waveType === 'bounty' ? 'kill the bounty to end it' : 'they come from the edges';
+  showWaveAnnounce(title, sub, 1800);
   combatLog('── Wave ' + n + ' ──', '#c49040');
   survivalUpdateBar();
 }
@@ -295,10 +299,18 @@ function survivalAfterTick() {
       if (S.telegraph.length) { survivalSpawnTelegraphed(); }
       if (S.bossPending) survivalPlanBoss();
       else if (S.budget > 0 && S.phaseTick % SURV.packEvery(S.wave) === 0) survivalPlanPack();
+      // bounty wave: spawn the bounty target once after the first pack
+      if (S.waveType === 'bounty' && !S.bounty && enemies.some((e) => e.hp > 0 && e._surv)) survivalSpawnBounty();
       if (S.budget <= 0 && !S.bossPending && !S.telegraph.length) { S.phase = 'clear'; S.phaseTick = 0; }
     }
   } else if (S.phase === 'clear') {
-    if (alive === 0) survivalStartBreather();
+    // bounty wave: killing the bounty clears instantly — remaining enemies flee
+    if (S.bounty && S.bounty.hp <= 0) {
+      enemies.forEach((e) => { if (e.hp > 0 && e !== S.bounty) { e.hp = 0; e._fled = true; spawnAoe(e.q, e.r, '#555', HEX * 0.8); } });
+      showWaveAnnounce('BOUNTY CLAIMED', 'remaining foes scatter', 1400);
+      S.bounty = null;
+    }
+    if (alive === 0 || (S.bounty === null && S.waveType === 'bounty' && enemies.every((e) => e.hp <= 0))) survivalStartBreather();
     else if (S.phaseTick === SURV.clearGrace) {
       // stragglers (kiting casters, mimics far away) charge so a wave can't stall forever
       enemies.forEach((e) => { if (e.hp > 0 && !e.isBoss && e.ai !== 'swarm') { e._charge = true; e.dmg = 1; e.telegraph = false; } });
@@ -410,6 +422,24 @@ function survivalPlanBoss() {
   S.telegraph.push({ q: h.q, r: h.r, side, boss: true, cost: 0 });
   S.bossPending = false;
   showWaveAnnounce('BOSS INCOMING', 'from the ' + { N: 'north', S: 'south', W: 'west', E: 'east' }[side], 1600);
+  screenFlash = { color: '#220000', life: 800, maxLife: 800 };
+  slowMoTimer = 600; slowMoFactor = 2;
+  doShake(15);
+  audio.setBossDrone && audio.setBossDrone(true);
+}
+function survivalSpawnBounty() {
+  const side = survivalPickSide();
+  const free = survivalFreeLaneHexes(side);
+  if (!free.length) return;
+  const h = free[Math.floor(free.length / 2)];
+  const extraHp = Math.floor((S.wave - 1) / SURV.hpEveryWaves) + Math.max(0, S.wave - SURV.lateFrom);
+  const hp = 4 + extraHp + players.length;
+  const e = { name: 'Bounty', hp, maxHp: hp, color: '#e8c840', q: h.q, r: h.r, prevQ: h.q, prevR: h.r, isEnemy: true, ai: 'charger', charging: false, shootTimer: 0, telegraph: false, telegraphTarget: null, spawnTick: tickCount, _surv: true, _bounty: true };
+  survivalMakeElite(e);
+  enemies.push(e); entities.push(e);
+  S.bounty = e;
+  spawnAoe(h.q, h.r, '#e8c840', HEX * 1.5); spawnDmg(h.q, h.r, '★ BOUNTY', '#e8c840');
+  showWaveAnnounce('BOUNTY SPAWNED', 'kill it to clear the wave', 1400);
 }
 function survivalSpawnTelegraphed() {
   const extraHp = Math.floor((S.wave - 1) / SURV.hpEveryWaves) + Math.max(0, S.wave - SURV.lateFrom);
@@ -553,10 +583,10 @@ function survivalResultsHeader() {
   const secs = Math.floor((Date.now() - S.startTime) / 1000);
   const time = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
   let html = `<h2 style="color:#c45a3c;text-shadow:0 0 20px rgba(196,90,60,0.3)">OVERRUN AT WAVE ${S.wave}</h2>`;
-  html += `<p style="color:#8a7e6e;font-size:11px;margin-bottom:4px;letter-spacing:1px;text-transform:uppercase">Survival · ${activeBiome.name} · ${diffNames[difficulty] || 'Normal'} · ${players.length} players</p>`;
-  html += `<p style="margin-bottom:8px;color:#888">${time} · ${S.cleared} wave${S.cleared === 1 ? '' : 's'} cleared · ${S.kills + S.summonKills} kills · ${S.bossKills} boss${S.bossKills === 1 ? '' : 'es'} · Lv${partyLevel}</p>`;
-  html += `<div style="margin:8px auto;font-size:52px;font-weight:900;color:#e8c878;text-shadow:0 0 30px rgba(232,200,120,0.3);letter-spacing:2px;line-height:1">${score}</div>`;
-  html += `<div style="font-size:10px;color:#555;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px">${S.newBest ? '<span style="color:#7ea879">★ New best!</span>' : 'Best ' + S.best} · ${players.length}p ${diffNames[difficulty] || 'Normal'}</div>`;
+  html += `<p style="color:#8a7e6e;font-size:0.6875rem;margin-bottom:0.25rem;letter-spacing:0.0625rem;text-transform:uppercase">Survival · ${activeBiome.name} · ${diffNames[difficulty] || 'Normal'} · ${players.length} players</p>`;
+  html += `<p style="margin-bottom:0.5rem;color:#888">${time} · ${S.cleared} wave${S.cleared === 1 ? '' : 's'} cleared · ${S.kills + S.summonKills} kills · ${S.bossKills} boss${S.bossKills === 1 ? '' : 'es'} · Lv${partyLevel}</p>`;
+  html += `<div style="margin:0.5rem auto;font-size:3.25rem;font-weight:900;color:#e8c878;text-shadow:0 0 30px rgba(232,200,120,0.3);letter-spacing:0.125rem;line-height:1">${score}</div>`;
+  html += `<div style="font-size:0.625rem;color:#555;letter-spacing:0.0625rem;text-transform:uppercase;margin-bottom:0.25rem">${S.newBest ? '<span style="color:#7ea879">★ New best!</span>' : 'Best ' + S.best} · ${players.length}p ${diffNames[difficulty] || 'Normal'}</div>`;
   return html;
 }
 
@@ -665,15 +695,15 @@ function survivalRenderPicks(force) {
   const key = (hostPicking ? 'H' : '-') + status;
   if (!force && el.dataset.key === key && el.style.display === 'block') return;
   el.dataset.key = key;
-  let html = '<div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#b8943e;margin-bottom:6px">Wave ' + S.cleared + ' cleared · choose an upgrade' + (hostPicking ? ' (keys 1 · 2 · 3)' : '') + '</div>';
+  let html = '<div style="font-size:0.75rem;letter-spacing:0.0625rem;text-transform:uppercase;color:#b8943e;margin-bottom:0.375rem">Wave ' + S.cleared + ' cleared · choose an upgrade' + (hostPicking ? ' (keys 1 · 2 · 3)' : '') + '</div>';
   if (hostPicking) {
-    html += '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:6px">';
+    html += '<div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:0.375rem">';
     (us.choices[host.name] || []).forEach((u, i) => {
-      html += '<button data-pick="' + i + '" style="background:linear-gradient(180deg,#2a2016,#1a140e);border:1px solid rgba(184,148,62,0.45);color:#eee;padding:8px 12px;border-radius:6px;cursor:pointer;font-family:inherit;min-width:150px"><div style="font-size:18px">' + u.icon + '</div><div style="font-weight:700;font-size:13px">' + (i + 1) + '. ' + _esc(u.name) + '</div><div style="font-size:11px;color:#a89c8a">' + _esc(u.desc) + '</div></button>';
+      html += '<button data-pick="' + i + '" style="background:linear-gradient(180deg,#2a2016,#1a140e);border:1px solid rgba(184,148,62,0.45);color:#eee;padding:0.5em 0.75em;border-radius:6px;cursor:pointer;font-family:inherit;min-width:9.375rem"><div style="font-size:1.125rem">' + u.icon + '</div><div style="font-weight:700;font-size:0.8125rem">' + (i + 1) + '. ' + _esc(u.name) + '</div><div style="font-size:0.6875rem;color:#a89c8a">' + _esc(u.desc) + '</div></button>';
     });
     html += '</div>';
   }
-  html += '<div style="font-size:11px;color:#888">' + status + '</div>';
+  html += '<div style="font-size:0.6875rem;color:#888">' + status + '</div>';
   el.innerHTML = html;
   el.querySelectorAll('[data-pick]').forEach((b) => { b.onclick = () => pickUpgrade(0, parseInt(b.dataset.pick)); });
   el.style.display = 'block';
@@ -705,7 +735,14 @@ function survivalGrantRelic() {
   S.relics.push(r); r.apply();
   showWaveAnnounce('RELIC: ' + r.name.toUpperCase(), r.icon + ' ' + r.desc, 3000);
   combatLog('Relic found: ' + r.icon + ' ' + r.name + ' — ' + r.desc, '#e8c878');
-  screenFlash = { color: '#b8943e', life: 400, maxLife: 400 };
+  screenFlash = { color: '#b8943e', life: 600, maxLife: 600 };
+  doShake(12); slowMoTimer = 500; slowMoFactor = 2;
+  players.forEach(p => {
+    if (p.hp <= 0 && !p.ghost) return;
+    const { x, y } = h2p(p.q, p.r);
+    for (let i = 0; i < 12; i++) statusParticles.push({ x, y, vx: (Math.random() - 0.5) * 3, vy: -1.5 - Math.random() * 2, color: i % 3 === 0 ? '#e8c878' : '#b8943e', life: 900, maxLife: 900, size: 2 + Math.random() * 2, star: true });
+    spawnAoe(p.q, p.r, '#b8943e', HEX * 1.5);
+  });
 }
 
 // ───────────────────────────── elites ─────────────────────────────
