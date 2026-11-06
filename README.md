@@ -1,21 +1,10 @@
----
-title: Pocket Quest
-tags: [javascript, webrtc, canvas, multiplayer, game]
-status: free & open-source
----
-
 # Pocket Quest
 
 > "Jackbox made me think, why not for RPGs? So I built one. Scan a code, your phone's the controller, and you're playing."
 
 Multiplayer tactical RPG that runs entirely in the browser. One screen hosts the game, everyone else joins on their phones — no installs, no accounts, no servers to rent. Built for Discord screenshare and couch play.
 
-**[Play it now](https://hansvidaure24.github.io/Pocket-Hex/)**
-
-<!-- 
-TODO: Add a screenshot or short GIF here.
-![Pocket Quest gameplay](docs/screenshot.png)
--->
+**[Play it now](https://hansvidaure24.github.io/Pocket-Quest/)**
 
 ## What it is
 
@@ -41,7 +30,7 @@ Zero dependencies for the game itself. No frameworks, no build step, no bundler.
 - Web Audio API for sound
 - GitHub Actions → GitHub Pages for deployment
 
-~7,700 lines of JavaScript across 6 files.
+~8,800 lines of JavaScript across 21 modules.
 
 ## Design decisions
 
