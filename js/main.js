@@ -249,7 +249,8 @@ function render(ts) {
   // screen flash
   if (screenFlash.life > 0) {
     screenFlash.life -= dt;
-    ctx.globalAlpha = (screenFlash.life / screenFlash.maxLife) * 0.25;
+    // canvas ignores a negative alpha and keeps 1, which painted the last frame solid
+    ctx.globalAlpha = Math.max(0, screenFlash.life / screenFlash.maxLife) * 0.25;
     ctx.fillStyle = screenFlash.color;
     ctx.fillRect(0, 0, C.width, C.height);
     ctx.globalAlpha = 1;
@@ -584,7 +585,7 @@ function render(ts) {
     const ttA = Math.min(1, tt.life / 300, Math.min(1, (1200 - tt.life) / 150));
     const ttY = C.height - Math.round(70 * uiS) - (1 - Math.min(1, (1200 - tt.life) / 200)) * 10;
     ctx.save();
-    ctx.globalAlpha = ttA * 0.65;
+    ctx.globalAlpha = Math.max(0, ttA) * 0.65;
     ctx.font = `bold ${Math.round(13 * uiS)}px Rajdhani,sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
@@ -756,7 +757,7 @@ function render(ts) {
     const rA = Math.min(rFadeIn, rFadeOut);
     const rScale = rp < 0.15 ? 0.5 + 3.5 * rp / 0.15 : 1;
     ctx.save();
-    ctx.globalAlpha = rA * 0.85;
+    ctx.globalAlpha = Math.max(0, rA) * 0.85;
     ctx.translate(C.width / 2, C.height / 2 - Math.round(40 * uiS));
     ctx.scale(rScale, rScale);
     ctx.font = `900 ${Math.round(120 * uiS)}px Rajdhani,sans-serif`;
