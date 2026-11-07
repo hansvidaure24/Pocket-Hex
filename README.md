@@ -6,6 +6,8 @@ Multiplayer tactical RPG that runs entirely in the browser. One screen hosts the
 
 **[Play it now](https://hansvidaure24.github.io/Pocket-Quest/)**
 
+On your own? **Host Game → Practice Solo** plays with bot teammates, or open **Join Game** in a second tab to be the phone yourself.
+
 <p align="center">
   <img src="assets/media/gameplay-phone.gif" width="100%" alt="Gameplay with phone controller">
 </p>
@@ -16,7 +18,7 @@ Multiplayer tactical RPG that runs entirely in the browser. One screen hosts the
 - **Tick-based combat.** Every 1–1.5 seconds, everyone inputs simultaneously on their phones. All moves resolve at once — it feels real-time but stays readable and tactical.
 - **Two modes.** Campaign (4 encounter zones, events, boss fight) and Survival (endless waves with per-wave upgrades, relics, and elites).
 - **4 classes** (Warrior, Mage, Rogue, Cleric), each with 2 loadout options.
-- **11 enemy types, 9 bosses**, all with telegraphed AI patterns players can learn and exploit.
+- **11 enemy types, 5 bosses**, all with telegraphed AI patterns players can learn and exploit.
 
 ## How it works
 
@@ -56,7 +58,14 @@ Zero dependencies for the game itself. No frameworks, no build step, no bundler.
 - Web Audio API for sound
 - GitHub Actions → GitHub Pages for deployment
 
-~8,800 lines of JavaScript across 21 modules.
+~8,900 lines of JavaScript across 21 modules.
+
+## Tests
+
+- **Unit tests** load the real game scripts into a Node VM and check hex math, combat rules and game data, including that the counts in this README are right. `npm test`
+- **Self-play:** a headless browser hosts a game, joins a phone over the same-browser channel, and lets the bot AI play a full campaign and three Survival waves. Any page error fails the run. `npm run test:selfplay`
+
+Both run on every push. The npm packages are dev tooling only; the game still ships with none.
 
 ## Design decisions
 

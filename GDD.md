@@ -164,7 +164,7 @@ Dead players become ghosts: they can still move on the grid but can't attack or 
 
 **Shipped:**
 - 4 classes with 2 loadouts each
-- 11 enemy types, 9 bosses, elite traits
+- 11 enemy types, 5 bosses, elite traits
 - Campaign mode (4 encounter zones, events, boss fight)
 - Survival mode (endless waves, per-wave upgrades, relics)
 - Tick-based simultaneous movement on phones
