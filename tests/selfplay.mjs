@@ -1,6 +1,6 @@
 // Headless self-play: the host and one phone join over the same-browser channel, the
 // game's own bot AI plays every hero, and the run has to finish without a single page error.
-//   node tests/selfplay.mjs            campaign (Easy, Short) and 3 Survival waves
+//   node tests/selfplay.mjs            Practice Solo, a campaign (Easy, Short) and 3 Survival waves
 //   node tests/selfplay.mjs campaign   just one of them
 import { chromium } from 'playwright';
 import http from 'node:http';
@@ -64,6 +64,15 @@ async function play(browser, mode) {
     }, 400);
   });
 
+  if (mode === 'practice') {
+    await host.click('text=Practice Solo');
+    await host.waitForFunction(() => running && gamePhase === 'game', null, { timeout: 20000 });
+    log('started');
+    await sleep(10000);
+    await ctx.close();
+    return { mode, result: errors.length ? null : 'ran 10s', errors, seconds: Math.round((Date.now() - started) / 1000) };
+  }
+
   await host.selectOption('#mode-sel', mode);
   await host.selectOption('#diff-sel', '0');
   await host.fill('#host-name', 'KAI');
@@ -106,7 +115,7 @@ async function play(browser, mode) {
   return { mode, result, errors, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
-const modes = process.argv[2] ? [process.argv[2]] : ['campaign', 'survival'];
+const modes = process.argv[2] ? [process.argv[2]] : ['practice', 'campaign', 'survival'];
 const browser = await chromium.launch();
 let failed = false;
 for (const mode of modes) {

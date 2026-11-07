@@ -343,8 +343,9 @@ function startPractice() {
       dedupeNames(players);
       initStats();
 
-      camOffX = -HEX * (SQRT3 * p.q + SQRT3 / 2 * p.r);
-      camOffY = -HEX * 1.5 * p.r;
+      const lead = players[0];
+      camOffX = -HEX * (SQRT3 * lead.q + SQRT3 / 2 * lead.r);
+      camOffY = -HEX * 1.5 * lead.r;
       audio.startDrone();
       countdownTimer = 1800;
       countdownText = '3';
