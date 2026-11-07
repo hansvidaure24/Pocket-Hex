@@ -1,4 +1,4 @@
-// Pocket Quest networking layer — shared by playtest.html (host) and controller.html (phones).
+// Pocket Quest networking layer — shared by host.html (host) and controller.html (phones).
 //
 // Transports, in the order a phone tries them:
 //   local — BroadcastChannel, host and controller in the same browser (dev/testing)

@@ -138,7 +138,7 @@ Dead players become ghosts: they can still move on the grid but can't attack or 
 
 **Engine:** Vanilla JavaScript + HTML5 Canvas. No frameworks, no build step.
 
-**Shared screen (playtest.html):**
+**Shared screen (host.html):**
 - Lobby, Campaign, Combat, Survival, Results — all in one page
 - Hex grid rendered on Canvas
 - Tick engine: configurable loop (1.0–2.0s), collects inputs, resolves state, broadcasts, animates

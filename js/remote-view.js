@@ -1,14 +1,14 @@
 // Pocket Quest — remote board view.
 //
 // A player on a computer can see the board on their own screen. controller.html embeds
-// playtest.html?viewer=1 (watch-only mode) and forwards it "board" snapshots it receives from the
+// host.html?viewer=1 (watch-only mode) and forwards it "board" snapshots it receives from the
 // host. The watch-only page reuses all of the host's drawing code; it never runs the game.
 //
 // Host side:   records visual/audio effects as small events, and after every tick sends each
 //              subscribed controller one snapshot (units, HUD numbers, events; terrain on change).
 // Viewer side: rebuilds the game globals from snapshots, replays the events, shows banners.
 //
-// Loaded before the main script. RV.installHost() / RV.startViewer() are called from playtest.html
+// Loaded before the main script. RV.installHost() / RV.startViewer() are called from host.html
 // once the game's functions exist.
 
 window.PQ_VIEWER = new URLSearchParams(location.search).get('viewer') === '1';

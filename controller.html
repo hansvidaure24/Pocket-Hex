@@ -802,7 +802,7 @@ function setBoard(on,remember){
   if(boardOn&&!boardFrame){
     boardFrame=document.createElement('iframe');boardFrame.id='board-frame';boardFrame.title='Game board';
     boardReady=false;boardFrame.onload=()=>{boardReady=true;if(_link&&_link.connected)_send({type:'board_sub',on:true,fresh:true,id:myId});}; // ask for the map again
-    boardFrame.src='playtest.html?viewer=1';
+    boardFrame.src='host.html?viewer=1';
     document.body.insertBefore(boardFrame,col);
   }
   if(!boardOn&&boardFrame){boardFrame.remove();boardFrame=null;boardReady=false;}

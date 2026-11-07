@@ -4,7 +4,7 @@
 // enemies can enter. Packs of enemies are announced on an edge one tick ahead, then walk in.
 // Waves escalate until every hero is down at once. Score = waves cleared, kills and bosses.
 //
-// Loaded before the main script in playtest.html; everything here runs at call time and uses the
+// Loaded before the main script in host.html; everything here runs at call time and uses the
 // game's globals (players, enemies, entities, terrain, tickCount, ...).
 
 // ───────────────────────────── tuning ─────────────────────────────

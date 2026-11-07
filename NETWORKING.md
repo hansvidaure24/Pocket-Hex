@@ -1,6 +1,6 @@
 # Online play (phones joining from anywhere)
 
-The shared screen (`playtest.html`) hosts a room with a 4-letter code. Phones open
+The shared screen (`host.html`) hosts a room with a 4-letter code. Phones open
 `controller.html?room=CODE` (the QR code) from any network: Wi-Fi, mobile data, a
 friend's house. All networking lives in `net.js`. Settings are in `net-config.js`.
 
@@ -45,7 +45,7 @@ npx wrangler deploy
 3. Commit and push. GitHub Pages redeploys the site.
 
 **Whenever you change `net-config.js` or `net.js`, bump the `?v=` number on their `<script>`
-tags in both `playtest.html` and `controller.html`.** GitHub Pages lets browsers cache files
+tags in both `host.html` and `controller.html`.** GitHub Pages lets browsers cache files
 for 10 minutes. Without the bump, a phone can mix a new page with an old config, for example
 one with no relay URL. In that case it only tries peer-to-peer and the error says
 "Relay not configured".
@@ -89,7 +89,7 @@ npx wrangler dev --port 8787
 python -m http.server 8000
 ```
 
-Open `http://localhost:8000/playtest.html`. To force a transport while testing in one
+Open `http://localhost:8000/host.html`. To force a transport while testing in one
 browser, run this in the dev-tools console, then reload both tabs:
 
 ```js
