@@ -529,12 +529,14 @@ function render(ts) {
   const xbX = Math.round(8 * uiS);
   const xbY = C.height - Math.round(48 * uiS);
   const totalKillsAll = Object.values(stats).reduce((s, st) => s + st.kills, 0);
+  let killsW = 0;
   if (totalKillsAll > 0) {
     ctx.fillStyle = 'rgba(200,200,220,0.3)';
     ctx.font = `${Math.round(10 * uiS)}px Rajdhani,sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillText(`${totalKillsAll} kills`, xbX, xbY);
+    killsW = ctx.measureText(`${totalKillsAll} kills`).width;
   }
 
   // Combo chain display
@@ -569,13 +571,13 @@ function render(ts) {
     ctx.restore();
   }
 
-  // DPS display
+  // DPS display, after the kill counter
   if (dpsDisplay > 0) {
     ctx.fillStyle = 'rgba(196,90,60,0.4)';
     ctx.font = `${Math.round(9 * uiS)}px Rajdhani,sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(`${dpsDisplay.toFixed(1)} dpt`, xbX + xbW + Math.round(6 * uiS), xbY + xbH);
+    ctx.fillText(`${dpsDisplay.toFixed(1)} dpt`, xbX + killsW + Math.round(8 * uiS), xbY);
   }
 
   // tick damage toast
@@ -958,6 +960,9 @@ function render(ts) {
   } catch (e) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
+    // keep the frame loop alive, but don't hide the bug: report each distinct error once
+    render.seen ??= new Set();
+    if (!render.seen.has(e.message)) { render.seen.add(e.message); console.error('render:', e); }
   }
 
   drawCanvasHud(ts);
