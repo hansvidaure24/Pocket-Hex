@@ -6,6 +6,10 @@ Multiplayer tactical RPG that runs entirely in the browser. One screen hosts the
 
 **[Play it now](https://hansvidaure24.github.io/Pocket-Quest/)**
 
+<p align="center">
+  <img src="assets/media/gameplay-phone.gif" width="100%" alt="Gameplay with phone controller">
+</p>
+
 ## What it is
 
 - **2–4 players, 10–15 minute sessions.** Host shares their screen (TV, Discord screenshare, projector). Players scan a QR code and their phone becomes their controller.
@@ -18,7 +22,29 @@ Multiplayer tactical RPG that runs entirely in the browser. One screen hosts the
 
 The host page runs all game logic and renders the board on an HTML5 Canvas. Phone controllers are a separate lightweight page that sends inputs over the network and displays your HP, cooldowns, and nearby threats.
 
+<p align="center">
+  <img src="assets/media/lobby-join.gif" width="100%" alt="Joining from a phone">
+</p>
+
 Networking tries three transports in order: same-browser (`BroadcastChannel`), WebSocket relay (Cloudflare Worker), and peer-to-peer (WebRTC via PeerJS). If any phone drops, it reconnects automatically and keeps its player slot.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/media/02-lobby.png" width="49%" alt="Lobby">
+  <img src="assets/media/03-combat.png" width="49%" alt="Combat">
+</p>
+<p align="center">
+  <img src="assets/media/04-upgrade.png" width="49%" alt="Upgrade pick">
+  <img src="assets/media/06-victory.png" width="49%" alt="Victory screen">
+</p>
+<p align="center">
+  <img src="assets/media/01-menu.png" width="77%" alt="Menu">
+  <img src="assets/media/07-controller.png" width="20%" alt="Phone controller">
+</p>
+<p align="center">
+  <img src="assets/media/boss-victory.gif" width="100%" alt="Lich boss fight">
+</p>
 
 ## Tech
 
